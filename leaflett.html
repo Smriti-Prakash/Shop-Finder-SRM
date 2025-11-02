@@ -1,0 +1,2334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Campus Compass Navigator</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+  <script src="https://unpkg.com/feather-icons"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.net.min.js"></script>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css"
+  />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: "#3B82F6",
+            secondary: "#10B981",
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    #vanta-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -1;
+      opacity: 0.2;
+    }
+
+    .shop-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+        0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+
+    .distance-badge {
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+      }
+      70% {
+        box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+      }
+    }
+
+    .page {
+      display: none;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    #map {
+      height: 300px;
+      width: 100%;
+      margin-top: 1rem;
+      border-radius: 0.5rem;
+    }
+    #subshopMenuMap {
+      height: 300px;
+      width: 100%;
+      margin-top: 1rem;
+      border-radius: 0.5rem;
+    }
+
+    #subshopsList {
+      margin-top: 1rem;
+      border-top: 1px solid #ddd;
+      padding-top: 1rem;
+    }
+    #subshopsList button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      background-color: #f3f4f6; /* tailwind gray-100 */
+      border-radius: 0.375rem;
+      margin-bottom: 0.5rem;
+    }
+    #subshopsList button:hover { background-color: #e5e7eb; }
+    #subshopsList .flex { gap: 0.5rem; }
+    #subshopsList .mt-2 .flex { gap: 0.4rem; }
+    #subshopsList .rounded { border-radius: 0.375rem; }
+
+    /* Subshop menu page helpers */
+    .meal-badge { display: inline-block; margin-right: 0.4rem; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; }
+    .meal-badge.breakfast { background:#FEF3C7; color:#92400E; }
+    .meal-badge.lunch { background:#DBEAFE; color:#1E3A8A; }
+    .meal-badge.snacks { background:#DCFCE7; color:#166534; }
+    .sub-item.unavailable { opacity: 0.55; }
+    .sub-item.available { opacity: 1; }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-50 relative flex flex-col">
+  <div id="vanta-canvas"></div>
+
+  <header class="bg-white shadow-sm">
+    <div class="container mx-auto px-4 py-6">
+      <div class="flex flex-col md:flex-row justify-between items-center">
+        <div class="flex items-center space-x-2 mb-4 md:mb-0">
+          <i data-feather="compass" class="text-primary w-8 h-8"></i>
+          <h1 class="text-2xl font-bold text-gray-800">SRM Shop Finder</h1>
+        </div>
+        <div class="relative w-full md:w-1/3">
+          <input
+            type="text"
+            id="searchInput"
+            placeholder="Search for shops, canteens, items..."
+            class="w-full px-4 py-2 rounded-full border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+            oninput="handleSearch()"
+          />
+            <div class="absolute right-3 top-2 flex items-center space-x-2">
+              <button class="text-gray-500 hover:text-primary" aria-label="search">
+                <i data-feather="search"></i>
+              </button>
+              <button id="favoritesBtn" class="relative text-gray-500 hover:text-red-500" aria-label="favorites" onclick="showFavoritesPage()">
+                <i data-feather="heart" data-fav-id="header"></i>
+                <span id="favoritesCount" class="hidden absolute -top-2 -right-2 bg-red-600 text-white text-xs rounded-full px-1">0</span>
+              </button>
+              <span id="backendStatusBadge" class="ml-3 inline-flex items-center text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">
+                <span class="w-2 h-2 rounded-full bg-gray-400 mr-1"></span>
+                Backend: Checking…
+              </span>
+              <div id="authControls" class="ml-2 flex items-center space-x-2">
+                <button id="loginBtn" onclick="showLoginPage()" class="text-sm text-gray-600 hover:text-primary">Login</button>
+                <div id="loggedInControls" class="hidden items-center space-x-2">
+                  <span id="loggedInUser" class="text-sm text-gray-700"></span>
+                  <button id="logoutBtn" onclick="logout()" class="text-sm text-red-500">Logout</button>
+                </div>
+              </div>
+            </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Admin Dashboard Quick Access Button -->
+  <div class="container mx-auto px-4 pt-2">
+    <button id="adminNavBtn" onclick="showAdminPage()" class="hidden bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all shadow-md hover:shadow-lg flex items-center space-x-2 text-sm font-medium">
+      <i data-feather="settings" class="w-4 h-4"></i>
+      <span>Admin Dashboard</span>
+    </button>
+  </div>
+
+  <main class="container mx-auto px-4 py-8 flex-grow">
+    <div id="homePage" class="page active">
+      <div class="mb-8">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4 text-center">
+          Shop Categories
+        </h2>
+        <div id="categoriesList" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+      </div>
+
+      <div>
+        <h2 class="text-xl font-semibold text-gray-700 mb-4 text-center">Nearby Shops</h2>
+        <div id="nearbyShops" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+      </div>
+    </div>
+
+    <div id="shopsPage" class="page">
+      <button class="mb-4 px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" onclick="showHomePage()">&larr; Back to Categories</button>
+      <h2 id="shopPageTitle" class="text-xl font-semibold text-gray-700 mb-6">Shops</h2>
+      <div id="shopsList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    </div>
+
+    <div id="favoritesPage" class="page">
+      <button class="mb-4 px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" onclick="showHomePage()">&larr; Back</button>
+      <h2 class="text-xl font-semibold text-gray-700 mb-6">Favorites</h2>
+      <div id="favoritesList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    </div>
+
+    <div id="loginPage" class="page">
+      <button class="mb-4 px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" onclick="showHomePage()">&larr; Back</button>
+      <h2 class="text-xl font-semibold text-gray-700 mb-6">Login</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-white p-6 rounded shadow">
+          <h3 class="font-semibold mb-2">User Login</h3>
+          <input id="loginUserUsername" class="w-full mb-2 px-3 py-2 border rounded" placeholder="Username"/>
+          <input id="loginUserPassword" type="password" class="w-full mb-3 px-3 py-2 border rounded" placeholder="Password"/>
+          <button class="bg-primary text-white px-4 py-2 rounded" onclick="submitLogin('USER')">Login as User</button>
+        </div>
+        <div class="bg-white p-6 rounded shadow">
+          <h3 class="font-semibold mb-2">Admin Login</h3>
+          <input id="loginAdminUsername" class="w-full mb-2 px-3 py-2 border rounded" placeholder="Admin Username"/>
+          <input id="loginAdminPassword" type="password" class="w-full mb-3 px-3 py-2 border rounded" placeholder="Password"/>
+          <button class="bg-secondary text-white px-4 py-2 rounded" onclick="submitLogin('ADMIN')">Login as Admin</button>
+          <div class="text-xs text-gray-500 mt-2">For demo, use admin/admin123 if seeded on backend.</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="adminPage" class="page">
+      <button class="mb-4 px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" onclick="showHomePage()">&larr; Back</button>
+      
+      <!-- Admin Header -->
+      <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg p-8 mb-6 text-white">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-3xl font-bold mb-2">Admin Dashboard</h2>
+            <p class="text-blue-100">Manage shops, monitor reviews, and track analytics</p>
+          </div>
+          <div class="hidden md:block">
+            <i data-feather="bar-chart-2" class="w-16 h-16 opacity-50"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats Overview -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-blue-500">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-gray-500 text-sm font-medium mb-1">Total Shops</p>
+              <p id="adminTotalShops" class="text-3xl font-bold text-gray-800">--</p>
+            </div>
+            <div class="bg-blue-100 rounded-full p-3">
+              <i data-feather="shopping-bag" class="w-6 h-6 text-blue-600"></i>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-green-500">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-gray-500 text-sm font-medium mb-1">Total Reviews</p>
+              <p id="adminTotalReviews" class="text-3xl font-bold text-gray-800">--</p>
+            </div>
+            <div class="bg-green-100 rounded-full p-3">
+              <i data-feather="message-square" class="w-6 h-6 text-green-600"></i>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-yellow-500">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-gray-500 text-sm font-medium mb-1">Avg Rating</p>
+              <p id="adminAvgRating" class="text-3xl font-bold text-gray-800">--</p>
+            </div>
+            <div class="bg-yellow-100 rounded-full p-3">
+              <i data-feather="star" class="w-6 h-6 text-yellow-600"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <!-- Top Rated Shops -->
+        <div class="bg-white rounded-xl shadow-md overflow-hidden">
+          <div class="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-4">
+            <h3 class="font-semibold text-lg text-white flex items-center">
+              <i data-feather="trophy" class="w-5 h-5 mr-2"></i>
+              Top Rated Shops
+            </h3>
+          </div>
+          <div id="adminTopShops" class="p-6">Loading...</div>
+        </div>
+
+        <!-- Recent Reviews -->
+        <div class="bg-white rounded-xl shadow-md overflow-hidden">
+          <div class="bg-gradient-to-r from-blue-500 to-cyan-500 px-6 py-4">
+            <h3 class="font-semibold text-lg text-white flex items-center">
+              <i data-feather="clock" class="w-5 h-5 mr-2"></i>
+              Recent Reviews
+            </h3>
+          </div>
+          <div id="adminRecentReviews" class="p-6 max-h-96 overflow-y-auto">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Manage Shops Section -->
+      <div class="bg-white rounded-xl shadow-md overflow-hidden">
+        <div class="bg-gradient-to-r from-green-500 to-emerald-500 px-6 py-4">
+          <h3 class="font-semibold text-lg text-white flex items-center">
+            <i data-feather="database" class="w-5 h-5 mr-2"></i>
+            Manage Shops (Database)
+          </h3>
+        </div>
+        <div class="p-6">
+          <form class="grid grid-cols-1 md:grid-cols-6 gap-3 mb-6 bg-gray-50 p-4 rounded-lg" onsubmit="event.preventDefault(); addAdminShop();">
+            <input id="admShopName" class="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent" placeholder="Shop Name"/>
+            <input id="admShopCategory" class="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent" placeholder="Category"/>
+            <input id="admShopLat" class="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent" placeholder="Latitude"/>
+            <input id="admShopLng" class="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent" placeholder="Longitude"/>
+            <input id="admShopImage" class="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent" placeholder="Image URL"/>
+            <button class="bg-green-500 hover:bg-green-600 text-white rounded-lg px-4 py-2 font-medium transition duration-200 flex items-center justify-center">
+              <i data-feather="plus" class="w-4 h-4 mr-1"></i>
+              Add Shop
+            </button>
+          </form>
+          
+          <!-- Search Bar for Shops -->
+          <div class="mb-4">
+            <div class="relative">
+              <input 
+                id="adminShopSearch" 
+                type="text" 
+                placeholder="Search shops by name or category..." 
+                class="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                oninput="filterAdminShops()"
+              />
+              <i data-feather="search" class="absolute left-3 top-2.5 w-5 h-5 text-gray-400"></i>
+            </div>
+          </div>
+          
+          <div id="adminShopsList" class="divide-y divide-gray-200"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="shopDetailsPage" class="page">
+      <button class="mb-4 px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" onclick="showShopsPage()">&larr; Back to Shops</button>
+      <div class="bg-white rounded-xl shadow-md overflow-hidden mb-6">
+        <div id="shopImageContainer" class="relative"></div>
+        <div class="p-6">
+          <h2 id="shopDetailsName" class="text-2xl font-bold text-gray-800 mb-2"></h2>
+          <p id="shopDetailsCategory" class="text-gray-600 mb-4 font-semibold"></p>
+          <p id="shopDetailsMenu" class="text-gray-600 mb-6"></p>
+
+          <div id="subshopsContainer" class="mb-4">
+            <h3 class="font-semibold text-lg mb-2">Shops inside this Canteen</h3>
+            <div id="subshopsList"></div>
+          </div>
+          
+          <!-- Menu Section for Canteens -->
+          <div id="menuContainer" class="mb-6" style="display:none;">
+            <h3 class="font-semibold text-lg mb-3">Menu</h3>
+            <div id="menuBySlots" class="space-y-4"></div>
+          </div>
+
+          <div id="reviewsContainer" class="mb-4">
+            <h3 class="font-semibold text-lg mb-2">Reviews</h3>
+            <div id="shopRatingsSummary" class="mb-4"></div>
+            <div id="reviewsList" class="mb-4"></div>
+            <div id="reviewForm" class="bg-gray-50 p-4 rounded">
+              <input id="reviewUser" placeholder="Your name" class="w-full mb-2 px-3 py-2 border rounded" />
+              <div class="flex items-center mb-2">
+                <label class="mr-2">Rating:</label>
+                <select id="reviewRating" class="px-2 py-1 border rounded">
+                  <option value="5">5</option>
+                  <option value="4">4</option>
+                  <option value="3">3</option>
+                  <option value="2">2</option>
+                  <option value="1">1</option>
+                </select>
+              </div>
+              <div class="text-sm text-gray-600 mb-2">You can also sign in to attach reviews to your account.</div>
+              <textarea id="reviewText" rows="3" placeholder="Write a short review..." class="w-full mb-2 px-3 py-2 border rounded"></textarea>
+              <div class="flex justify-end">
+                <button onclick="submitReview()" class="bg-primary text-white px-4 py-2 rounded">Submit Review</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-2 mt-4">
+            <button id="canteenDirectionBtn" class="text-white bg-primary px-4 py-2 rounded hover:bg-blue-700 transition duration-300" onclick="showDirections()">Get Directions</button>
+          </div>
+
+          <button id="subshopDirectionBtn" class="text-white bg-secondary px-4 py-2 rounded hover:bg-green-700 transition duration-300 ml-4 hidden" onclick="showSubshopDirections()">Get Directions to Selected Shop</button>
+
+          <div id="map"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- New: Subshop Menu Page -->
+    <div id="subshopMenuPage" class="page">
+      <button class="mb-4 px-3 py-1 bg-gray-200 rounded hover:bg-gray-300" onclick="showShopDetails(currentShop?.id || 1)">&larr; Back</button>
+      <div class="bg-white rounded-xl shadow-md overflow-hidden mb-6">
+        <div id="subshopMenuHeader" class="p-6 border-b">
+          <h2 id="subshopMenuTitle" class="text-2xl font-bold text-gray-800 mb-1"></h2>
+          <div id="subshopMenuMeta" class="text-sm text-gray-600"></div>
+          <div id="subshopMenuStatus" class="mt-2"></div>
+          <div id="subshopMenuAverage" class="mt-1"></div>
+        </div>
+        <div id="subshopMenuBody" class="p-6">
+          <h3 class="font-semibold mb-3">Menu</h3>
+          <div id="subshopMenuList" class="space-y-2"></div>
+          <div class="mt-6">
+            <h3 class="font-semibold mb-2">Directions</h3>
+            <button class="text-white bg-secondary px-4 py-2 rounded hover:bg-green-700 transition duration-300" onclick="showSubshopMenuDirections()">Get Directions</button>
+            <div id="subshopMenuMap"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="subshopReviewsContainer" class="bg-white rounded-xl shadow-md overflow-hidden">
+        <div class="p-6 border-b">
+          <h3 class="font-semibold text-lg mb-2">Reviews</h3>
+            <div id="subshopRatingsSummary" class="mb-4"></div>
+          <div id="subshopReviewsList" class="mb-4"></div>
+          <div id="subshopReviewForm" class="bg-gray-50 p-4 rounded">
+            <input id="subshopReviewUser" placeholder="Your name" class="w-full mb-2 px-3 py-2 border rounded" />
+            <div class="flex items-center mb-2">
+              <label class="mr-2">Rating:</label>
+              <select id="subshopReviewRating" class="px-2 py-1 border rounded">
+                <option value="5">5</option>
+                <option value="4">4</option>
+                <option value="3">3</option>
+                <option value="2">2</option>
+                <option value="1">1</option>
+              </select>
+            </div>
+            <textarea id="subshopReviewText" rows="3" placeholder="Write a short review..." class="w-full mb-2 px-3 py-2 border rounded"></textarea>
+            <div class="flex justify-end">
+              <button onclick="submitSubshopReview()" class="bg-primary text-white px-4 py-2 rounded">Submit Review</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="bg-gray-800 text-white py-8 mt-auto">
+    <div class="container mx-auto px-4 text-center">
+      <p>© 2025 Campus Compass Navigator. All rights reserved.</p>
+    </div>
+  </footer>
+
+<script>
+  // (PWA/service worker removed - running as a normal website)
+
+  // --- Simple IndexedDB helper (very small wrapper) ---
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('srm-db', 1);
+      req.onupgradeneeded = (ev) => {
+        const db = ev.target.result;
+        if (!db.objectStoreNames.contains('reviewQueue')) db.createObjectStore('reviewQueue', { keyPath: 'id', autoIncrement: true });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function idbAddReviewDraft(draft) {
+    const db = await idbOpen();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('reviewQueue', 'readwrite');
+      const store = tx.objectStore('reviewQueue');
+      const r = store.add(draft);
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  }
+
+  async function idbGetAllDrafts() {
+    const db = await idbOpen();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('reviewQueue', 'readonly');
+      const store = tx.objectStore('reviewQueue');
+      const r = store.getAll();
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  }
+
+  async function idbRemoveDraft(key) {
+    const db = await idbOpen();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('reviewQueue', 'readwrite');
+      const store = tx.objectStore('reviewQueue');
+      const r = store.delete(key);
+      r.onsuccess = () => res();
+      r.onerror = () => rej(r.error);
+    });
+  }
+
+  // Try to sync queued reviews when online
+  async function trySyncQueuedReviews() {
+    const drafts = await idbGetAllDrafts();
+    if (!drafts || drafts.length === 0) return;
+    for (const d of drafts) {
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        const token = getAuthToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch(REVIEWS_BASE, { method: 'POST', headers, body: JSON.stringify(d.payload) });
+        if (res.ok) await idbRemoveDraft(d.id);
+      } catch (e) {
+        console.warn('sync draft failed', e);
+      }
+    }
+  }
+
+  window.addEventListener('online', () => {
+    console.log('Back online — attempting to sync reviews');
+    trySyncQueuedReviews();
+  });
+  // Auth UI removed for now (backend pending). Token helpers kept for later integration.
+  const AUTH_BASE = "http://localhost:8080/api/auth";
+
+  function setAuthToken(token) { localStorage.setItem('srm_auth_token', token); }
+  function getAuthToken() { return localStorage.getItem('srm_auth_token'); }
+  function clearAuthToken() { localStorage.removeItem('srm_auth_token'); }
+  function setAuthRole(role) { localStorage.setItem('srm_auth_role', role || ''); }
+  function getAuthRole() { return localStorage.getItem('srm_auth_role') || ''; }
+  function setAuthUserName(name) { localStorage.setItem('srm_auth_user', name || ''); }
+  function getAuthUserName() { return localStorage.getItem('srm_auth_user') || ''; }
+
+  function setLoggedInUser(name) {
+    document.getElementById('loggedInUser').innerText = name;
+    document.getElementById('loggedInControls').classList.remove('hidden');
+    // prefill review user field when available
+    const reviewUserInput = document.getElementById('reviewUser');
+    if (reviewUserInput) reviewUserInput.value = name;
+    document.getElementById('loginBtn').classList.add('hidden');
+    // show admin nav only if role is ADMIN
+    const role = getAuthRole();
+    const adminBtn = document.getElementById('adminNavBtn');
+    if (adminBtn) {
+      if (role === 'ADMIN') adminBtn.classList.remove('hidden'); else adminBtn.classList.add('hidden');
+    }
+  }
+
+  function logout() {
+    clearAuthToken();
+    setAuthRole('');
+    setAuthUserName('');
+    document.getElementById('loggedInUser').innerText = '';
+    document.getElementById('loggedInControls').classList.add('hidden');
+    document.getElementById('loginBtn').classList.remove('hidden');
+    const adminBtn = document.getElementById('adminNavBtn');
+    if (adminBtn) adminBtn.classList.add('hidden');
+  }
+
+  // When page loads, if token exists, show logged-in UI (username may be embedded in token for demo)
+  function tryRestoreAuth() {
+    const token = getAuthToken();
+    if (!token) return;
+    try {
+      // demo token might be base64 encoded username; attempt decode
+      if (token.indexOf('.') === -1) {
+        try { const user = atob(token); setLoggedInUser(user); } catch(e) { setLoggedInUser('User'); }
+      } else setLoggedInUser('User');
+    } catch (e) {
+      console.warn('Failed restoring auth', e);
+    }
+
+    // (Menu suggestions removed: menus will be populated programmatically by crawler or backend.)
+  }
+  function updateAuthUIFromStorage() {
+    const token = getAuthToken();
+    const user = getAuthUserName();
+    const role = getAuthRole();
+    if (token) {
+      setLoggedInUser(user || 'User');
+      const adminBtn = document.getElementById('adminNavBtn');
+      if (adminBtn) { if (role === 'ADMIN') adminBtn.classList.remove('hidden'); else adminBtn.classList.add('hidden'); }
+    } else {
+      document.getElementById('loggedInControls').classList.add('hidden');
+      document.getElementById('loginBtn').classList.remove('hidden');
+      const adminBtn = document.getElementById('adminNavBtn');
+      if (adminBtn) adminBtn.classList.add('hidden');
+    }
+  }
+
+  // --- Reviews & averages ---
+  async function submitLogin(expectedRole) {
+    try {
+      const isAdmin = expectedRole === 'ADMIN';
+      const u = document.getElementById(isAdmin ? 'loginAdminUsername' : 'loginUserUsername').value.trim();
+      const p = document.getElementById(isAdmin ? 'loginAdminPassword' : 'loginUserPassword').value;
+      if (!u || !p) { alert('Enter username and password'); return; }
+      const res = await fetch(`${AUTH_BASE}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: u, password: p })
+      });
+      if (!res.ok) {
+        if (res.status === 401) throw new Error('INVALID');
+        throw new Error('SERVER');
+      }
+  const data = await res.json(); // { token, username, role }
+  setAuthToken(data.token);
+  setAuthRole(data.role);
+  setAuthUserName(data.username);
+  setLoggedInUser(data.username);
+  if (data.role === 'ADMIN') showAdminPage(); else showHomePage();
+    } catch (e) {
+      if (e && e.message === 'INVALID') alert('Invalid credentials');
+      else alert('Login failed — is the backend running?');
+    }
+  }
+  async function fetchAverage(shopId) {
+    try {
+      const res = await fetch(`${REVIEWS_BASE}/shop/${shopId}/average`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data; // { count, average }
+    } catch (e) {
+      console.error('avg fetch', e);
+      return null;
+    }
+  }
+
+  function showAverageOnElement(container, avgData) {
+    if (!container) return;
+    if (!avgData || !avgData.count) {
+      container.innerHTML = '<span class="text-sm text-gray-500">No ratings</span>';
+      return;
+    }
+    container.innerHTML = `<span class="text-sm text-yellow-500 font-semibold">${Number(avgData.average).toFixed(1)}★</span> <span class="text-sm text-gray-500">(${avgData.count})</span>`;
+  }
+  // Normalize menu arrays to an array of name strings
+  function menuToNames(menu) {
+    if (!menu) return [];
+    return menu.map(m => {
+      if (!m && m !== 0) return '';
+      if (typeof m === 'string') return m;
+      if (typeof m === 'object' && m.name) return m.name;
+      return String(m);
+    }).filter(Boolean);
+  }
+  const shops = [
+    {
+      id: 1,
+      name: "Java",
+      category: "Canteen",
+      lat: 12.823353353591989,
+      lng: 80.04448659833056,
+      // Menu items sourced from public listings (Restaurant-Guru, campus posts)
+      menu: [
+        { name: "Idly", meals: ["breakfast" ] },
+        { name: "Dosa", meals: ["breakfast", "snacks"] },
+        { name: "Sambar Rice", meals: ["lunch"] },
+        { name: "Veg Biryani", meals: ["lunch"] },
+        { name: "Chicken Biryani", meals: ["lunch"] },
+        { name: "Fried Rice", meals: ["lunch", "snacks"] },
+        { name: "Parotta", meals: ["breakfast", "snacks"] },
+        { name: "Chai", meals: ["breakfast", "snacks", "lunch"] }
+      ],
+      menuSource: [
+        { label: "Restaurant-Guru (community)",
+          url: "https://www.restaurantguru.com/Java-SRM-University" }
+      ],
+      image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEg6QBsQ7UcC_y4CnTm8CojJZFoFB39fyQ59SaFTDGNST2xVn44YDR-sOGCoTMOQX25EjhUmCn-IYhCVYW7yxLExeGWLcN0WLTqqFULYm7zKbJpGMDzNhshTSST7XyXfLdGstsZtQ8q0qvA/w1200-h630-p-k-no-nu/05nxg_SRM_JPG_1043572a.jpg",
+      subshops: [
+        { id: 101, name: "Amul", category: "Fast Food", lat: 12.823268440081444, lng: 80.0446200988427,
+          menu: ["Vanilla Ice Cream","Chocolate Ice Cream","Butterscotch Ice Cream","Milkshake"],
+          menuBySlot: {
+            breakfast: ["Milkshake", "Lassi", "Butter Milk"],
+            lunch: ["Vanilla Ice Cream", "Chocolate Ice Cream", "Strawberry Ice Cream", "Mango Ice Cream", "Butterscotch Ice Cream"],
+            snacks: ["Vanilla Ice Cream", "Chocolate Ice Cream", "Strawberry Ice Cream", "Mango Ice Cream", "Butterscotch Ice Cream", "Kulfi", "Choco Bar", "Falooda", "Milkshake"]
+          }
+        },
+        { id: 102, name: "Subway", category: "Fast Food", lat: 12.823617042923118, lng: 80.04456035139887,
+          // Short summary for cards/search
+          menu: ["Veggie Delite","Paneer Tikka","Roast Chicken","Italian B.M.T (Chicken)"],
+          // Grouped menu for page rendering
+          menuBySlot: {
+            breakfast: [
+              "Double Egg n' Cheese Omelette"
+            ],
+            lunch: [
+              "Veggie Delite",
+              "Paneer Tikka",
+              "Aloo Patty",
+              "Veg Shami",
+              "Chicken Slice",
+              "Roast Chicken",
+              "Chicken Teriyaki",
+              "Peri Peri Chicken",
+              "Tandoori Chicken",
+              "Chicken Meatball",
+              "Italian B.M.T (Chicken)",
+              "Italian B.M.T (Lamb)"
+            ],
+            snacks: [
+              "Chilli Bean Patty",
+              "Corn & Peas",
+              "Tuna",
+              "Lamb Pepperoni",
+              // hot & cheesy
+              "Potato Chilli Cheese",
+              "Cheesy Mexican",
+              "Cheesy Paneer Tikka",
+              "Chicken Keema Melt",
+              "Egg'n Chicken Melt",
+              "Cheesy American BBQ",
+              "Cheesy Chicken Tikka",
+              "Cheesy Lamb Pepperoni"
+            ]
+          }
+        },
+        { id: 103, name: "Emo Pizza", category: "Fast Food", lat: 12.823282824301396, lng: 80.0444645307229,
+          menu: ["Margherita","Veggie Supreme","Paneer Tikka Pizza","Garlic Bread"],
+          menuBySlot: {
+            lunch: [
+              "Margherita",
+              "Farmhouse",
+              "Veggie Supreme",
+              "Paneer Tikka Pizza",
+              "Chicken Tikka Pizza",
+              "BBQ Chicken Pizza",
+              "Peri Peri Chicken Pizza"
+            ],
+            snacks: [
+              "Garlic Bread",
+              "Cheese Garlic Bread",
+              "Chicken Nuggets",
+              "Choco Lava Cake",
+              "Cold Coffee",
+              "Pepsi"
+            ]
+          }
+        },
+        { id: 104, name: "Biryani House", category: "Fast Food", lat: 12.823319415468196,  lng: 80.04440993069969,
+          menu: ["Veg Biryani","Chicken Biryani","Egg Biryani","Chicken 65"],
+          menuBySlot: {
+            lunch: [
+              "Veg Biryani",
+              "Egg Biryani",
+              "Chicken Biryani",
+              "Mutton Biryani",
+              "Paneer Biryani",
+              "Curd Rice",
+              "Chicken 65",
+              "Paneer Butter Masala + Roti",
+              "Dal Tadka + Jeera Rice"
+            ],
+            snacks: [
+              "Chicken Roll",
+              "Paneer Roll",
+              "Egg Kathi Roll",
+              "Samosa"
+            ]
+          }
+        },
+        { id: 105, name: "Chocomans", category: "Fast Food", lat: 12.823353353591989, lng: 80.04448659833056,
+          menu: ["Chocolate Shake","Hot Chocolate","Brownie","Chocolate Pastry"],
+          menuBySlot: {
+            breakfast: ["Hot Chocolate", "Chocolate Milkshake", "Mocha"],
+            lunch: ["Chocolate Shake", "Brownie", "Chocolate Pastry", "Chocolate Muffin"],
+            snacks: ["Chocolate Shake", "Hot Chocolate", "Brownie", "Chocolate Pastry", "Chocolate Waffle", "Choco Lava Cake", "Death by Chocolate"]
+          }
+        },
+        { id: 106, name: "Sharjah Juice Centre", category: "Juice", lat: 12.823291324067354, lng: 80.04440418102128,
+          menu: ["Sharjah Shake","Mango Juice","Watermelon Juice","Pomegranate Juice"],
+          menuBySlot: {
+            breakfast: [
+              "Sharjah Shake",
+              "Banana Milkshake",
+              "Dates Milkshake",
+              "Cold Coffee"
+            ],
+            lunch: [
+              "Lassi",
+              "Buttermilk"
+            ],
+            snacks: [
+              "Mango Juice",
+              "Watermelon Juice",
+              "Pineapple Juice",
+              "Orange Juice",
+              "Pomegranate Juice",
+              "Grape Juice",
+              "Fruit Salad"
+            ]
+          }
+        },
+        { id: 107, name: "Zinger Fast Food", category: "Fast Food", lat: 12.823353353591989, lng: 80.04448659833056,
+          menu: ["Zinger Burger","Chicken Burger","Veg Burger","French Fries"],
+          menuBySlot: {
+            breakfast: ["Egg Burger", "Breakfast Wrap"],
+            lunch: ["Zinger Burger", "Chicken Burger", "Veg Burger", "Paneer Burger", "Cheese Burger", "Chicken Wrap", "French Fries", "Chicken Nuggets"],
+            snacks: ["Zinger Burger", "Veg Burger", "French Fries", "Peri Peri Fries", "Chicken Popcorn", "Onion Rings", "Pepsi"]
+          }
+        },
+        { id: 108, name: "Evergreen", category: "Restaurant", lat: 12.823274530999926,  lng: 80.04462724843943,
+          menu: ["Veg Meals","Non-Veg Meals","Dosa","Idly"],
+          menuBySlot: {
+            breakfast: ["Idly", "Dosa", "Pongal", "Vada", "Upma", "Poori", "Filter Coffee"],
+            lunch: ["Veg Meals", "Non-Veg Meals", "Chicken Biryani", "Veg Biryani", "Sambar Rice", "Curd Rice", "Chicken 65"],
+            snacks: ["Dosa", "Idly", "Vada", "Bajji", "Samosa", "Tea", "Coffee"]
+          }
+        },
+      ],
+    },
+    {
+      id: 50,
+      name: "UB",
+      category: "Canteen",
+      lat: 12.823568524848268,
+      lng: 80.04233027195555,
+      menu: ["Idly", "Dosa", "Biriyani"],
+      image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRzvMPDEzOkgjIWzUyIIP-d9M7pGjJ-MWUr4Q&s",
+      subshops: [
+  { id: 201, name: "UB Canteen (Ground floor)", category: "Canteen", lat: 12.823568524848268, lng: 80.04233027195555,
+    menu: ["Idly","Dosa","Biryani","Meals"],
+    menuBySlot: {
+      breakfast: ["Idly", "Dosa", "Pongal", "Vada", "Poori", "Upma", "Parotta", "Tea", "Coffee"],
+      lunch: ["Veg Meals", "Non-Veg Meals", "Veg Biryani", "Chicken Biryani", "Sambar Rice", "Curd Rice", "Fried Rice", "Chapati with Dal"],
+      snacks: ["Idly", "Dosa", "Vada", "Parotta", "Samosa", "Bajji", "Tea", "Coffee"]
+    }
+  },
+  { id: 202, name: "Chai Kings (1st floor)", category: "Fast Food", lat: 12.823568524848268, lng: 80.04233027195555,
+    menu: ["Tea","Coffee","Samosa","Vada Pav"],
+    menuBySlot: {
+      breakfast: ["Masala Tea", "Ginger Tea", "Lemon Tea", "Filter Coffee", "Black Coffee"],
+      lunch: ["Masala Tea", "Coffee", "Samosa", "Vada Pav", "Bread Pakoda"],
+      snacks: ["Masala Tea", "Ginger Tea", "Cardamom Tea", "Coffee", "Samosa", "Vada Pav", "Bread Pakoda", "Bun Maska"]
+    }
+  },
+  { id: 203, name: "Fast Food Shop (1st floor)", category: "Fast Food", lat: 12.823568524848268, lng: 80.04233027195555,
+    menu: ["Burger","Sandwich","Fries","Pizza"],
+    menuBySlot: {
+      breakfast: ["Egg Sandwich", "Cheese Sandwich", "Veg Sandwich"],
+      lunch: ["Veg Burger", "Chicken Burger", "Paneer Burger", "Veg Pizza", "French Fries", "Chicken Roll", "Paneer Roll"],
+      snacks: ["Veg Burger", "Chicken Burger", "Sandwich", "French Fries", "Peri Peri Fries", "Pizza Slice", "Garlic Bread", "Cold Drink"]
+    }
+  },
+  { id: 204, name: "Juice (Ground floor)", category: "Juice", lat: 12.823568524848268, lng: 80.04233027195555,
+    menu: ["Fresh Juice","Milkshake","Smoothie"],
+    menuBySlot: {
+      breakfast: ["Banana Shake", "Dates Shake", "Milkshake", "Lassi"],
+      lunch: ["Watermelon Juice", "Mango Juice", "Mosambi Juice", "Buttermilk"],
+      snacks: ["Watermelon Juice", "Mango Juice", "Orange Juice", "Pomegranate Juice", "Pineapple Juice", "Mixed Fruit Juice", "Smoothie", "Milkshake"]
+    }
+  },
+      ]
+    },
+    {
+      id: 60,
+      name: "Vendhar Square",
+      category: "Canteen",
+      lat: 12.823369932082304, 
+      lng: 80.04521316398336,
+      menu: ["Pizza","Sandwich","Burger","Pasta","Coffee"],
+      menuSource: [ { label: "Zomato (Vendhar Domino's listing)", url: "https://www.zomato.com/chennai/dominos-pizza-1-potheri/menu" } ],
+      image: "https://i.ytimg.com/vi/3TOeYND7LCs/maxresdefault.jpg",
+      subshops: [
+  { id: 301, name: "Slice of Life Cafe", category: "Cafe", lat: 12.823369932082304, lng:80.04521316398336,
+    menu: ["Sandwich","Coffee","Pasta","Cake"],
+    menuBySlot: {
+      breakfast: ["Veg Sandwich", "Egg Sandwich", "Club Sandwich", "Coffee", "Cappuccino", "Latte", "Tea", "Croissant"],
+      lunch: ["Veg Sandwich", "Chicken Sandwich", "Panini", "Pasta", "Mac n Cheese", "Caesar Salad", "Wrap", "Fries"],
+      snacks: ["Sandwich", "Garlic Bread", "French Fries", "Nachos", "Coffee", "Cold Coffee", "Milkshake", "Cake Slice", "Brownie", "Muffin"]
+    }
+  },
+  { id: 302, name: "Triangle Cafe", category: "Cafe", lat: 12.823369932082304, lng: 80.04521316398336,
+    menu: ["Wrap","Smoothie","Juice","Salad"],
+    menuBySlot: {
+      breakfast: ["Breakfast Wrap", "Egg Wrap", "Smoothie Bowl", "Banana Smoothie", "Berry Smoothie", "Coffee"],
+      lunch: ["Chicken Wrap", "Veg Wrap", "Paneer Wrap", "Falafel Wrap", "Greek Salad", "Caesar Salad", "Fresh Juice"],
+      snacks: ["Wrap", "Nachos", "Quesadilla", "Smoothie", "Fresh Juice", "Milkshake", "Fruit Bowl", "Cookies"]
+    }
+  },
+  { id: 303, name: "Meat and Eat", category: "Fast Food", lat: 12.823369932082304, lng: 80.04521316398336,
+    menu: ["Chicken Burger","Grilled Chicken","Chicken Wings","Shawarma"],
+    menuBySlot: {
+      breakfast: ["Egg Burger", "Chicken Sausage", "Breakfast Wrap"],
+      lunch: ["Chicken Burger", "Beef Burger", "Grilled Chicken", "Chicken Steak", "Chicken Wings", "Chicken Shawarma", "Chicken Roll", "BBQ Chicken", "French Fries"],
+      snacks: ["Chicken Burger", "Chicken Wings", "Chicken Popcorn", "Shawarma", "Chicken Nuggets", "French Fries", "Pepsi"]
+    }
+  },
+  { id: 304, name: "Dominos", category: "Fast Food", lat: 12.823369932082304, lng: 80.04521316398336,
+    menu: ["Margherita","Pepperoni","Farmhouse","Garlic Bread"],
+    menuBySlot: {
+      breakfast: ["Breakfast Pizza", "Cheese Garlic Bread"],
+      lunch: ["Margherita", "Farmhouse", "Peppy Paneer", "Mexican Green Wave", "Chicken Dominator", "Chicken Golden Delight", "Pepperoni", "BBQ Chicken", "Pasta", "Garlic Bread"],
+      snacks: ["Margherita", "Pepperoni", "Farmhouse", "Garlic Bread", "Cheese Garlic Bread", "Stuffed Garlic Bread", "Chicken Wings", "Choco Lava Cake", "Pepsi"]
+    },
+    menuSource: [ { label: "Zomato Domino's Potheri menu", url: "https://www.zomato.com/chennai/dominos-pizza-1-potheri/menu" } ]
+  },
+  { id: 305, name: "Cake Valley", category: "Fast Food", lat: 12.823369932082304, lng: 80.04521316398336,
+    menu: ["Cake Slice","Pastry","Cupcake","Brownie"],
+    menuBySlot: {
+      breakfast: ["Croissant", "Danish Pastry", "Muffin", "Coffee", "Tea"],
+      lunch: ["Cake Slice", "Pastry", "Cupcake", "Sandwich", "Puff"],
+      snacks: ["Cake Slice", "Pastry", "Cupcake", "Brownie", "Donut", "Macarons", "Red Velvet Cake", "Black Forest Cake", "Chocolate Truffle", "Coffee", "Cold Coffee"]
+    }
+  },
+      ]
+    },
+    { id: 2, name: "StarPrinters (UB)", category: "Printout Shop", lat: 12.823300127536273, lng: 80.04195336251868, image: "https://i.ibb.co/cXMpzBY4/Whats-App-Image-2025-10-14-at-10-27-39-PM-1.jpg" },
+    { id: 3, name: "Bank (1)", category: "Bank", lat: 12.823300127536273, lng: 80.04195336251868, menu: [], image: "https://i.ibb.co/HTkbWfqd/Whats-App-Image-2025-10-14-at-10-27-38-PM-1.jpg" },
+    { id: 4, name: "Salon (UB)", category: "Salon", lat: 12.823568524848268, lng: 80.04233027195555, menu: [], image: "https://content.jdmagicbox.com/v2/comp/mumbai/d5/022pxx22.xx22.231212181839.k4d5/catalogue/unique-salons-goregaon-west-mumbai-unisex-salons-j12imdd50y.jpg" },
+    { id: 5, name: "Valliammai Canteen", category: "Canteen", lat: 12.82601715600742, lng: 80.04136821358217,
+      menu: ["Idly","Dosa","Meals","Biryani"],
+      menuBySlot: {
+        breakfast: ["Idly", "Dosa", "Pongal", "Vada", "Poori", "Upma", "Tea", "Coffee"],
+        lunch: ["Veg Meals", "Non-Veg Meals", "Sambar Rice", "Lemon Rice", "Curd Rice", "Veg Biryani", "Chicken Biryani", "Chapati with Curry"],
+        snacks: ["Idly", "Dosa", "Vada", "Bajji", "Bonda", "Parotta", "Tea", "Coffee"]
+      },
+      image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSZ3gIbYLyIWvDBLGgpE7pjrP3U2es3egbM2w&s"
+    },
+    { id: 6, name: "CRC Canteen", category: "Canteen", lat: 12.82382, lng: 80.0458,
+      menu: ["Idly","Dosa","Meals","Fried Rice"],
+      menuBySlot: {
+        breakfast: ["Idly", "Dosa", "Pongal", "Vada", "Upma", "Poori Masala", "Tea", "Coffee"],
+        lunch: ["Veg Meals", "Non-Veg Meals", "Veg Fried Rice", "Chicken Fried Rice", "Sambar Rice", "Curd Rice", "Paneer Butter Masala", "Roti"],
+        snacks: ["Idly", "Dosa", "Vada", "Samosa", "Pakoda", "Parotta", "Tea", "Coffee", "Biscuits"]
+      },
+      image: "https://i.ibb.co/nqnxMjDq/Whats-App-Image-2025-10-14-at-10-27-38-PM.jpg"
+    },
+    { id: 7, name: "TP Canteen", category: "Canteen", lat: 12.824673162862894, lng: 80.04483103751537,
+      menu: ["Idly","Dosa","Meals","Biryani"],
+      menuBySlot: {
+        breakfast: ["Idly", "Dosa", "Pongal", "Vada", "Upma", "Parotta", "Tea", "Coffee"],
+        lunch: ["Veg Meals", "Non-Veg Meals", "Veg Biryani", "Chicken Biryani", "Egg Biryani", "Sambar Rice", "Curd Rice", "Chapati with Dal"],
+        snacks: ["Idly", "Dosa", "Vada", "Bajji", "Bonda", "Samosa", "Parotta", "Tea", "Coffee"]
+      },
+      image: "https://i.pinimg.com/736x/37/c2/9a/37c29ab0f7095b2bf6100907b8df4a6e.jpg"
+    },
+    { id: 8, name: "You Prints(near hostel)", category: "Printout Shop", lat: 12.821905751735454, lng: 80.04269276733008, menu: [], image: "https://i.ibb.co/cc3GG7fz/Whats-App-Image-2025-10-14-at-10-46-23-PM.jpg" },
+    { id: 10, name: "SRM Hotel", category: "Hotel", lat: 12.824145035526522, lng: 80.04135306996508, menu: [], image: "https://r1imghtlak.mmtcdn.com/2e40c3646f4f11ea99210242ac110002.jpg" },
+    { id: 11, name: "SRM Global Hospitals", category: "Hospital", lat: 12.82336144407875, lng: 80.04782486987925, menu: [], image: "https://srmglobalhospitals.com/wp-content/uploads/2024/08/about_package_3.png" },
+    { id: 12, name: "Pharmacy (Hospital)", category: "Pharmacy", lat: 12.822656931323316, lng: 80.0477478274059, menu: [], image: "https://www.renaimedicity.org/wp-content/uploads/2021/05/pharmacy.jpg" },
+    { id: 401, name: "Vendhar Square Supermarket", category: "Supermarket", lat: 12.82413, lng: 80.04336, menu: [], image: "https://tse4.mm.bing.net/th/id/OIP.nrtgKewdm9Gwscy5LVR7AwAAAA?cb=12ucfimg=1&rs=1&pid=ImgDetMain&o=7&rm=3" },
+    { id: 402, name: "UB Supermarket", category: "Supermarket", lat: 12.82352, lng: 80.04410, menu: [], image: "https://tse2.mm.bing.net/th/id/OIP.Wxngm7EddvaL4ltdU6klkAHaFj?cb=12ucfimg=1&rs=1&pid=ImgDetMain&o=7&rm=3" },
+    { id: 403, name: "Supermarket (near Java)", category: "Supermarket", lat: 12.82413, lng: 80.04336, menu: [], image: "https://tse2.mm.bing.net/th/id/OIP.VYscR2AtRKFJneIm2nhQpQHaGy?cb=12ucfimg=1&rs=1&pid=ImgDetMain&o=7&rm=3" },
+    { id: 404, name: "Supermarket (near Meenakshi Hostel)", category: "Supermarket", lat: 12.8230, lng: 80.0442, menu: [], image: "https://i.ibb.co/TDhhdbT6/Whats-App-Image-2025-10-14-at-10-46-24-PM.jpg" },
+    { id: 405, name: "Slice of Life (near the hospital)", category: "Canteen", lat: 12.821822047857204, lng: 80.04778213913104,
+      menu: ["Sandwich","Pasta","Coffee","Cake"],
+      menuBySlot: {
+        breakfast: ["Veg Sandwich", "Egg Sandwich", "Club Sandwich", "Coffee", "Tea", "Toast", "Pancakes"],
+        lunch: ["Veg Sandwich", "Chicken Sandwich", "Pasta", "Fried Rice", "Burger", "French Fries", "Salad"],
+        snacks: ["Sandwich", "Pasta", "French Fries", "Cake Slice", "Pastry", "Muffin", "Coffee", "Cold Coffee", "Milkshake"]
+      },
+      image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRyeXLMXtg4ccV6aT2tDT7QyOVvBl6dJUQCoQ&s"
+    },
+    { id: 406, name: "Genz cafe", category: "Canteen", lat: 12.822808061756259, lng: 80.04249375326766,
+      menu: ["Burger","Sandwich","Coffee","Shake"],
+      menuBySlot: {
+        breakfast: ["Veg Sandwich", "Egg Sandwich", "Coffee", "Tea", "Croissant"],
+        lunch: ["Veg Burger", "Chicken Burger", "Sandwich", "Pasta", "Pizza Slice", "French Fries", "Wrap"],
+        snacks: ["Burger", "Sandwich", "French Fries", "Nachos", "Coffee", "Cold Coffee", "Milkshake", "Smoothie", "Brownie"]
+      },
+      image: "https://i.ibb.co/DD2dP7VK/Whats-App-Image-2025-10-14-at-10-46-24-PM-1.jpg"
+    },
+    { id: 407, name: "SBI ATM", category: "Bank", lat: 12.823325942410486, lng: 80.04249375326766, menu: [], image: "https://i.ibb.co/j9mM1M9P/Whats-App-Image-2025-10-14-at-10-27-39-PM.jpg" }
+  ];
+  
+  // Reload shops from backend and merge with frontend shops array
+  async function reloadShopsFromBackend() {
+    try {
+      const token = getAuthToken();
+      const res = await fetch('http://localhost:8080/api/admin/shops', {
+        headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+      });
+      if (!res.ok) {
+        console.log('Could not fetch backend shops, status:', res.status);
+        return;
+      }
+      const backendShops = await res.json();
+      
+      console.log('Fetched backend shops:', backendShops.length);
+      
+      // Add new backend shops that don't exist in frontend
+      let addedCount = 0;
+      backendShops.forEach(backendShop => {
+        const exists = shops.find(s => s.id === backendShop.id);
+        if (!exists) {
+          // Add with empty menu array and subshops if not present
+          shops.push({
+            ...backendShop,
+            menu: backendShop.menu || [],
+            subshops: backendShop.subshops || []
+          });
+          addedCount++;
+        }
+      });
+      
+      console.log('Added', addedCount, 'new shops. Total shops now:', shops.length);
+      
+      // Re-render categories and nearby shops
+      renderCategories();
+      renderNearbyShops();
+      
+    } catch (e) {
+      console.error('Failed to reload shops from backend:', e);
+    }
+  }
+  
+  // --- Operating hours and busy-hours logic ---
+  // Busy hours for all shops: 11:30 - 13:30
+  const BUSY_START_MIN = 11 * 60 + 30;
+  const BUSY_END_MIN = 13 * 60 + 30;
+
+  function minutesSinceMidnight(date) {
+    return date.getHours() * 60 + date.getMinutes();
+  }
+
+  function formatMinutesToTime(min) {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    const date = new Date();
+    date.setHours(h, m, 0, 0);
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function findParentShopBySubId(subId) {
+    return shops.find(s => s.subshops && s.subshops.some(sub => sub.id === subId));
+  }
+
+  // Returns { is24x7:bool, openMin:int, closeMin:int }
+  function getOperatingHours(shopOrId) {
+    // Resolve to a top-level shop for hours. If a subshop object/id is passed, use its parent shop hours.
+    let shop = null;
+    if (typeof shopOrId === 'object') {
+      const obj = shopOrId || {};
+      if (typeof obj.id === 'number') {
+        const parent = findParentShopBySubId(obj.id);
+        // If it's a subshop, parent will be found; otherwise try matching top-level by id
+        shop = parent || shops.find(s => s.id === obj.id) || obj;
+      } else {
+        shop = obj;
+      }
+    } else {
+      shop = shops.find(s => s.id === shopOrId) || findParentShopBySubId(shopOrId) || null;
+    }
+    // default hours: 7:30 - 17:00
+    const defaultOpen = 7 * 60 + 30;
+    const defaultClose = 17 * 60; // 5:00pm
+    if (!shop) return { is24x7: false, openMin: defaultOpen, closeMin: defaultClose };
+    // Java (id 1) special hours 7:30 - 19:30
+    if (shop.id === 1 || (shop.name && shop.name.toLowerCase().trim() === 'java')) {
+      return { is24x7: false, openMin: 7 * 60 + 30, closeMin: 19 * 60 + 30 };
+    }
+    // Hospital or Pharmacy categories are 24/7
+    const cat = (shop.category || '').toLowerCase();
+    if (cat === 'hospital' || cat === 'pharmacy') return { is24x7: true, openMin: 0, closeMin: 24 * 60 };
+    // Otherwise default
+    return { is24x7: false, openMin: defaultOpen, closeMin: defaultClose };
+  }
+
+  function isOpenNowFor(shopOrId, nowDate) {
+    const now = nowDate || new Date();
+    const mins = minutesSinceMidnight(now);
+    const ops = getOperatingHours(shopOrId);
+    if (ops.is24x7) return { open: true, nextChangeMin: null };
+    // handle times where close may be past midnight (not used here but safe)
+    if (ops.openMin <= ops.closeMin) {
+      const open = mins >= ops.openMin && mins < ops.closeMin;
+      return { open, nextChangeMin: open ? ops.closeMin : ops.openMin };
+    } else {
+      // e.g., open 20:00 to 04:00
+      const open = mins >= ops.openMin || mins < ops.closeMin;
+      return { open, nextChangeMin: open ? ops.closeMin : ops.openMin };
+    }
+  }
+
+  function isBusyNow(nowDate) {
+    const now = nowDate || new Date();
+    const mins = minutesSinceMidnight(now);
+    return mins >= BUSY_START_MIN && mins < BUSY_END_MIN;
+  }
+
+  function renderStatusHtmlFor(shopOrId) {
+    const ops = getOperatingHours(shopOrId);
+    const status = isOpenNowFor(shopOrId);
+    const busy = isBusyNow();
+    if (ops.is24x7) {
+      return `<div class="flex items-center space-x-2"><span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Open · 24/7</span>${busy ? '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">Busy now</span>' : ''}</div>`;
+    }
+    const openStr = status.open ? `<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Open · Closes ${formatMinutesToTime(status.nextChangeMin)}</span>` : `<span class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">Closed · Opens ${formatMinutesToTime(status.nextChangeMin)}</span>`;
+    const busyStr = busy ? `<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">Busy now</span>` : '';
+    return `<div class="flex items-center space-x-2">${openStr}${busyStr}</div>`;
+  }
+  let currentCategory = null;
+  let currentShop = null;
+  let selectedSubshop = null;
+  let userLocation = null;
+  let mapInstance = null;
+  let routingControl = null;
+  // Separate map and routing for subshop menu page
+  let subshopMapInstance = null;
+  let subshopRoutingControl = null;
+
+  const FAVORITES_KEY = "srm_favorites";
+
+  function getFavorites() {
+    try {
+      return JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveFavorites(list) {
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
+    updateFavoritesCount();
+  }
+
+  function isFavorited(id) {
+    return getFavorites().includes(id);
+  }
+
+  function toggleFavorite(id) {
+    const favs = getFavorites();
+    const exists = favs.includes(id);
+    const newFavs = exists ? favs.filter((x) => x !== id) : [...favs, id];
+    saveFavorites(newFavs);
+    // Immediate visual update: toggle heart icons that carry data-fav-id attribute
+    document.querySelectorAll(`[data-fav-id='${id}']`).forEach(el => {
+      // el may be <i> or parent button; normalize to the <i>
+      const icon = el.tagName.toLowerCase() === 'i' ? el : el.querySelector('i');
+      if (!icon) return;
+      if (newFavs.includes(id)) {
+        icon.classList.remove('text-gray-400');
+        icon.classList.add('text-red-500');
+      } else {
+        icon.classList.remove('text-red-500');
+        icon.classList.add('text-gray-400');
+      }
+    });
+    // refresh current view so other dynamic parts update
+    if (document.getElementById("homePage").classList.contains("active")) showHomePage();
+    else if (document.getElementById("shopsPage").classList.contains("active")) showShopsPage();
+    else if (document.getElementById("shopDetailsPage").classList.contains("active")) {
+      if (selectedSubshop) showSubShopDetails(selectedSubshop);
+      else showShopDetails(currentShop.id);
+    } else if (document.getElementById("favoritesPage") && document.getElementById("favoritesPage").classList.contains("active")) {
+      showFavoritesPage();
+    }
+  }
+
+  function updateFavoritesCount() {
+    const count = getFavorites().length;
+    const el = document.getElementById("favoritesCount");
+    if (!el) return;
+    el.innerText = String(count);
+    if (count > 0) el.classList.remove("hidden");
+    else el.classList.add("hidden");
+  }
+
+  function showPage(pageId) {
+    document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
+    const el = document.getElementById(pageId);
+    if (el) el.classList.add("active");
+    if (pageId === "shopDetailsPage") initializeShopMap();
+    // re-run feather icons for any new buttons
+    feather.replace();
+  }
+
+  function showLoginPage() {
+    showPage('loginPage');
+  }
+
+  function showHomePage() {
+    currentCategory = null;
+    showPage("homePage");
+    renderCategories();
+    renderNearbyShops();
+    updateFavoritesCount();
+  }
+
+  function renderCategories() {
+    const categories = [...new Set(shops.map((s) => s.category))];
+    const container = document.getElementById("categoriesList");
+    container.innerHTML = "";
+    categories.forEach((cat) => {
+      const card = document.createElement("button");
+      card.className =
+        "shop-card cursor-pointer rounded-xl shadow-md bg-white p-4 hover:bg-gray-100 transition";
+      card.innerText = cat;
+      card.onclick = () => {
+        currentCategory = cat;
+        showShopsPage();
+      };
+      container.appendChild(card);
+    });
+  }
+
+  function renderNearbyShops() {
+    const nearbyContainer = document.getElementById("nearbyShops");
+    nearbyContainer.innerHTML = "";
+    const nearbyShops = shops.slice(0, 3);
+    nearbyShops.forEach((shop) => {
+      const favClass = isFavorited(shop.id) ? "text-red-500" : "text-gray-400";
+      const card = document.createElement("div");
+      card.className =
+        "shop-card bg-white rounded-xl shadow-md overflow-hidden transition duration-300";
+      card.innerHTML = `
+        <div class="relative">
+          <img src="${shop.image}" alt="${shop.name}" class="w-full h-40 object-cover" />
+          <span class="absolute top-2 right-2 px-2 py-1 bg-secondary text-white text-xs rounded-full">${shop.category}</span>
+          <button onclick="event.stopPropagation(); toggleFavorite(${shop.id});" class="absolute top-2 left-2 bg-white rounded-full p-1" data-fav-id="${shop.id}">
+            <i data-feather="heart" data-fav-id="${shop.id}" class="${favClass}"></i>
+          </button>
+        </div>
+        <div class="p-4">
+          <h3 class="font-semibold text-lg text-gray-800 mb-1">${shop.name}</h3>
+          <p class="text-gray-600 text-sm mb-2">Menu: ${menuToNames(shop.menu).length ? menuToNames(shop.menu).join(", ") : "-"}</p>
+          <div class="mb-2">${renderStatusHtmlFor(shop)}</div>
+          <div id="avg-${shop.id}" class="mb-2"></div>
+          <button class="text-primary text-sm font-medium hover:underline" onclick="showShopDetails(${shop.id})">View Details</button>
+        </div>
+      `;
+      nearbyContainer.appendChild(card);
+      // fetch average and display
+      (async () => { const avg = await fetchAverage(shop.id); const el = document.getElementById(`avg-${shop.id}`); if (el) showAverageOnElement(el, avg); })();
+    });
+    feather.replace();
+  }
+
+  function showShopsPage() {
+    showPage("shopsPage");
+    const shopsTitle = document.getElementById("shopPageTitle");
+    shopsTitle.innerText = `Shops - ${currentCategory || "All"}`;
+    const container = document.getElementById("shopsList");
+    container.innerHTML = "";
+    const filteredShops = currentCategory
+      ? shops.filter((s) => s.category === currentCategory)
+      : shops;
+    filteredShops.forEach((shop) => {
+      const favClass = isFavorited(shop.id) ? "text-red-500" : "text-gray-400";
+      const card = document.createElement("div");
+      card.className =
+        "shop-card bg-white rounded-lg shadow-sm overflow-hidden transition duration-300 cursor-pointer";
+      card.innerHTML = `
+        <div class="relative">
+          <img src="${shop.image}" alt="${shop.name}" class="w-full h-32 object-cover" />
+          <button onclick="event.stopPropagation(); toggleFavorite(${shop.id});" class="absolute top-2 left-2 bg-white rounded-full p-1" data-fav-id="${shop.id}">
+            <i data-feather="heart" data-fav-id="${shop.id}" class="${favClass}"></i>
+          </button>
+        </div>
+        <div class="p-4">
+          <div class="flex justify-between items-start mb-2">
+            <h3 class="font-medium text-gray-800">${shop.name}</h3>
+            <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">${shop.category}</span>
+          </div>
+          ${shop.category && shop.category.toLowerCase() === 'canteen' ? `<p class="text-gray-500 text-sm mb-3">Menu: ${menuToNames(shop.menu).length ? menuToNames(shop.menu).join(", ") : "-"}</p>` : ''}
+          <div class="mb-2">${renderStatusHtmlFor(shop)}</div>
+          <div id="avg-${shop.id}" class="mb-2"></div>
+        </div>
+      `;
+      card.onclick = () => showShopDetails(shop.id);
+      container.appendChild(card);
+      // populate average
+      (async () => { const avg = await fetchAverage(shop.id); const el = document.getElementById(`avg-${shop.id}`); if (el) showAverageOnElement(el, avg); })();
+    });
+    feather.replace();
+  }
+
+  function showShopDetails(shopId) {
+    currentShop = shops.find((s) => s.id === shopId);
+    selectedSubshop = null;
+    if (!currentShop) return;
+    showPage("shopDetailsPage");
+    const favClass = isFavorited(currentShop.id) ? "text-red-500" : "text-gray-400";
+    document.getElementById("shopDetailsName").innerHTML = `${currentShop.name} <button onclick="toggleFavorite(${currentShop.id});" class="ml-2 align-middle"><i data-feather="heart" class="${favClass}"></i></button>`;
+    document.getElementById("shopDetailsCategory").innerText = `Category: ${currentShop.category}`;
+    const menuEl = document.getElementById("shopDetailsMenu");
+    if (currentShop.category && currentShop.category.toLowerCase() === 'canteen') {
+      menuEl.innerText = menuToNames(currentShop.menu).length ? `Menu: ${menuToNames(currentShop.menu).join(", ")}` : "Menu: -";
+      menuEl.style.display = 'block';
+    } else {
+      menuEl.style.display = 'none';
+    }
+    const imgContainer = document.getElementById("shopImageContainer");
+    imgContainer.innerHTML = `<img src="${currentShop.image}" alt="${currentShop.name}" class="w-full h-48 object-cover rounded-t-xl" />`;
+
+    const subshopsContainer = document.getElementById("subshopsContainer");
+    const subshopsList = document.getElementById("subshopsList");
+    if (currentShop.subshops && currentShop.subshops.length > 0) {
+      subshopsContainer.style.display = "block";
+      subshopsList.innerHTML = "";
+      currentShop.subshops.forEach((subshop) => {
+        const favClassSub = isFavorited(subshop.id) ? "text-red-500" : "text-gray-400";
+        const wrapper = document.createElement("div");
+        wrapper.className = "flex items-center justify-between mb-2";
+        wrapper.innerHTML = `
+          <div class="flex items-center w-full">
+            <div class="flex-1">
+              <button class="text-left w-full text-sm font-medium px-3 py-2 bg-gray-100 rounded hover:bg-gray-200" onclick="showSubShopDetails(${subshop.id})">${subshop.name}</button>
+              <div class="mt-2 flex items-center space-x-2 text-xs text-gray-600">
+                <span class="px-2 py-1 bg-gray-100 rounded-full">${subshop.category}</span>
+                <div class="inline-block">${renderStatusHtmlFor(subshop)}</div>
+              </div>
+            </div>
+            <div class="ml-3 flex-shrink-0">
+              <button onclick="event.stopPropagation(); toggleFavorite(${subshop.id});" class="bg-white rounded-full p-2" data-fav-id="${subshop.id}">
+                <i data-feather="heart" data-fav-id="${subshop.id}" class="${favClassSub}"></i>
+              </button>
+            </div>
+          </div>
+        `;
+        subshopsList.appendChild(wrapper);
+      });
+      document.getElementById("canteenDirectionBtn").style.display = "inline-block";
+      document.getElementById("subshopDirectionBtn").style.display = "none";
+    } else {
+      subshopsContainer.style.display = "none";
+      document.getElementById("canteenDirectionBtn").style.display = "inline-block";
+      document.getElementById("subshopDirectionBtn").style.display = "none";
+    }
+    
+    // Display organized menu for canteens
+    const menuContainer = document.getElementById("menuContainer");
+    const menuBySlots = document.getElementById("menuBySlots");
+    if (currentShop.category && currentShop.category.toLowerCase() === 'canteen' && currentShop.menuBySlot) {
+      menuContainer.style.display = "block";
+      menuBySlots.innerHTML = "";
+      const slot = currentMealSlot();
+      const order = [slot].concat(['breakfast','lunch','snacks'].filter(s => s !== slot));
+      const titles = { breakfast: 'Breakfast', lunch: 'Lunch', snacks: 'Snacks' };
+      const icons = { breakfast: 'sunrise', lunch: 'sun', snacks: 'moon' };
+      const headingBg = {
+        breakfast: 'bg-gradient-to-r from-yellow-100 to-orange-100 text-orange-800',
+        lunch: 'bg-gradient-to-r from-green-100 to-blue-100 text-green-800',
+        snacks: 'bg-gradient-to-r from-pink-100 to-purple-100 text-pink-800'
+      };
+      
+      order.forEach(mealSlot => {
+        const items = currentShop.menuBySlot[mealSlot] || [];
+        if (items.length > 0) {
+          const isActive = mealSlot === slot;
+          const slotDiv = document.createElement('div');
+          slotDiv.className = `border rounded-lg overflow-hidden ${isActive ? 'ring-2 ring-blue-400' : ''}`;
+          slotDiv.innerHTML = `
+            <div class="px-4 py-2 ${headingBg[mealSlot]} font-semibold flex items-center space-x-2">
+              <i data-feather="${icons[mealSlot]}" class="w-4 h-4"></i>
+              <span>${titles[mealSlot]}</span>
+              ${isActive ? '<span class="ml-2 text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">Now Serving</span>' : ''}
+            </div>
+            <div class="p-4 bg-white">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                ${items.map(item => `<div class="text-sm text-gray-700 flex items-center"><span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>${item}</div>`).join('')}
+              </div>
+            </div>
+          `;
+          menuBySlots.appendChild(slotDiv);
+        }
+      });
+    } else {
+      menuContainer.style.display = "none";
+    }
+    
+    feather.replace();
+    // ensure an average display placeholder exists and populate it
+    if (!document.getElementById('shopDetailsAverage')) {
+      const nameEl = document.getElementById('shopDetailsName');
+      const avgEl = document.createElement('div');
+      avgEl.id = 'shopDetailsAverage';
+      avgEl.className = 'mt-1';
+      nameEl.parentNode.insertBefore(avgEl, nameEl.nextSibling);
+    }
+    // load reviews for this shop (also updates average inside loadReviews)
+    loadReviews(currentShop.id);
+    (async () => { const avg = await fetchAverage(currentShop.id); const avgEl = document.getElementById('shopDetailsAverage'); if (avgEl) showAverageOnElement(avgEl, avg); })();
+    // ensure a single status container exists and update it
+    const detailsAvg = document.getElementById('shopDetailsAverage');
+    if (detailsAvg) {
+      let statusContainer = document.getElementById('shopDetailsStatus');
+      if (!statusContainer) {
+        statusContainer = document.createElement('div');
+        statusContainer.id = 'shopDetailsStatus';
+        statusContainer.className = 'mt-2';
+        detailsAvg.parentNode.insertBefore(statusContainer, detailsAvg.nextSibling);
+      }
+      statusContainer.innerHTML = renderStatusHtmlFor(currentShop);
+    }
+  }
+
+  function showSubShopDetails(subshopOrId) {
+    // allow passing either the object or id
+    const subshop = typeof subshopOrId === 'object' ? subshopOrId : findSubshopById(subshopOrId);
+    if (!subshop) return;
+    selectedSubshop = subshop;
+    document.getElementById("shopDetailsName").innerText = subshop.name;
+    document.getElementById("shopDetailsCategory").innerText = `Category: ${subshop.category} (Inside ${currentShop.name})`;
+  // Show a quick summary of menu using menuBySlot if present
+    let summaryNames = [];
+    if (subshop.menuBySlot) {
+      const namesSet = new Set();
+      const order = ['breakfast','lunch','snacks'];
+      order.forEach(k => {
+        const arr = Array.isArray(subshop.menuBySlot[k]) ? subshop.menuBySlot[k] : [];
+        arr.forEach(n => { if (n) namesSet.add(String(n)); });
+      });
+      summaryNames = Array.from(namesSet).slice(0, 6);
+    } else {
+      summaryNames = menuToNames(subshop.menu);
+    }
+    document.getElementById("shopDetailsMenu").innerText = summaryNames.length ? `Menu: ${summaryNames.join(", ")}` : "Menu: -";
+  // Use main shop image for subshops
+    const imgContainer = document.getElementById("shopImageContainer");
+    imgContainer.innerHTML = `<img src="${currentShop.image}" alt="${subshop.name}" class="w-full h-48 object-cover rounded-t-xl" />`;
+
+    document.getElementById("canteenDirectionBtn").style.display = "none";
+    document.getElementById("subshopDirectionBtn").style.display = "inline-block";
+
+    if (mapInstance) {
+      mapInstance.remove();
+      mapInstance = null;
+    }
+    mapInstance = L.map("map").setView([subshop.lat, subshop.lng], 18);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(mapInstance);
+
+    L.marker([subshop.lat, subshop.lng])
+      .addTo(mapInstance)
+      .bindPopup(subshop.name)
+      .openPopup();
+
+    if (routingControl) {
+      mapInstance.removeControl(routingControl);
+      routingControl = null;
+    }
+    feather.replace();
+    // Navigate to dedicated subshop menu page only if parent shop is a Canteen
+    if (currentShop && currentShop.category && currentShop.category.toLowerCase() === 'canteen') {
+      renderSubshopMenuPage(subshop);
+    }
+  }
+
+  // --- Meal-time helpers and subshop menu page rendering ---
+  function currentMealSlot(date) {
+    const now = date || new Date();
+    const mins = minutesSinceMidnight(now);
+    // breakfast: 07:00 - 11:00, lunch: 11:00 - 15:30, snacks: 15:30 - 19:00 (Java snacks extended to 19:30)
+    const bStart = 7 * 60, bEnd = 11 * 60;
+    const lEnd = 15 * 60 + 30;
+    // Extend snacks till 19:30 if the active shop context is Java
+    let javaContext = false;
+    if (currentShop && (currentShop.id === 1 || (currentShop.name || '').toLowerCase().trim() === 'java')) javaContext = true;
+    if (!javaContext && typeof selectedSubshop === 'object' && selectedSubshop && typeof selectedSubshop.id === 'number') {
+      const parent = findParentShopBySubId(selectedSubshop.id);
+      if (parent && (parent.id === 1 || (parent.name || '').toLowerCase().trim() === 'java')) javaContext = true;
+    }
+    const sEnd = javaContext ? (19 * 60 + 30) : (19 * 60);
+    if (mins >= bStart && mins < bEnd) return 'breakfast';
+    if (mins >= bEnd && mins < lEnd) return 'lunch';
+    if (mins >= lEnd && mins < sEnd) return 'snacks';
+    // outside service, show next day snacks as unavailable by default
+    return 'snacks';
+  }
+
+  function renderSubshopMenuPage(subshop) {
+    // switch page
+    showPage('subshopMenuPage');
+    // header
+    const titleEl = document.getElementById('subshopMenuTitle');
+    const metaEl = document.getElementById('subshopMenuMeta');
+    const statusEl = document.getElementById('subshopMenuStatus');
+    const avgEl = document.getElementById('subshopMenuAverage');
+    titleEl.textContent = subshop.name;
+    metaEl.textContent = `Category: ${subshop.category} (Inside ${currentShop?.name || ''})`;
+    statusEl.innerHTML = renderStatusHtmlFor(subshop);
+    (async () => { const avg = await fetchAverage(subshop.id); showAverageOnElement(avgEl, avg); })();
+
+    // menu list: grouped by meal slot if provided
+    const listEl = document.getElementById('subshopMenuList');
+    const slot = currentMealSlot();
+    const groups = subshop.menuBySlot || null;
+    let html = '';
+    if (groups) {
+      const order = [slot].concat(['breakfast','lunch','snacks'].filter(s => s !== slot));
+      const titles = { breakfast: 'Breakfast', lunch: 'Lunch', snacks: 'Snacks' };
+      const icons = { breakfast: 'sunrise', lunch: 'sun', snacks: 'moon' };
+      const headingBg = {
+        breakfast: 'bg-gradient-to-r from-yellow-100 to-orange-100 text-orange-800',
+        lunch: 'bg-gradient-to-r from-green-100 to-blue-100 text-green-800',
+        snacks: 'bg-gradient-to-r from-pink-100 to-purple-100 text-pink-800'
+      };
+      const seen = new Set();
+      order.forEach(s => {
+        const arr = Array.isArray(groups[s]) ? groups[s] : [];
+        if (!arr.length) return;
+        html += `<div class="mt-4">`;
+        html += `<div class="flex items-center gap-2 px-3 py-2 rounded-md ${headingBg[s] || 'bg-gray-100 text-gray-700'} mb-2">`+
+                `<i data-feather="${icons[s] || 'clock'}" class="w-4 h-4"></i>`+
+                `<span class="font-semibold">${titles[s] || s}</span>`+
+                `</div>`;
+        html += `<div class="grid grid-cols-1 md:grid-cols-2 gap-2">`;
+        arr.forEach(name => {
+          if (!name) return;
+          if (seen.has(name)) return; // avoid duplicates across slots
+          seen.add(name);
+          const available = (s === slot);
+          html += `<div class="sub-item ${available ? 'available' : 'unavailable'} bg-white rounded-lg border p-3 border-l-4 ${available ? 'border-l-green-500' : 'border-l-gray-300'} hover:shadow-sm transition">`+
+                  `<div class="flex items-center justify-between">`+
+                  `<div class="font-medium">${escapeHtml(String(name))}</div>`+
+                  `${available ? '<span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">Available now</span>' : '<span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Later</span>'}`+
+                  `</div>`+
+                  `</div>`;
+        });
+        html += `</div>`; // grid
+        html += `</div>`; // section
+      });
+    } else {
+      const arr = Array.isArray(subshop.menu) ? subshop.menu : [];
+      html = arr.map(n => `<div class="sub-item available bg-white rounded-lg border p-3 border-l-4 border-l-green-500 hover:shadow-sm transition mb-2"><div class="flex items-center justify-between"><div class="font-medium">${escapeHtml(typeof n === 'string' ? n : (n && n.name) || '')}</div><span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">Available now</span></div></div>`).join('');
+    }
+    listEl.innerHTML = html || '<div class="text-gray-500">No menu items provided.</div>';
+    // render icons for headings
+    try { feather.replace(); } catch (e) {}
+
+    // reviews list + summary + form for subshop page
+    loadReviewsInto('subshopReviewsList', subshop.id, 'subshopRatingsSummary');
+    // directions map inside subshop menu page
+    renderSubshopDirections(subshop);
+  }
+
+  // Render map and optional directions within subshop menu page
+  function renderSubshopDirections(subshop) {
+    const mapDiv = document.getElementById('subshopMenuMap');
+    if (!mapDiv) return;
+    // Clean up previous map/control if any
+    if (subshopMapInstance) {
+      subshopMapInstance.remove();
+      subshopMapInstance = null;
+    }
+    subshopMapInstance = L.map('subshopMenuMap').setView([subshop.lat, subshop.lng], 18);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(subshopMapInstance);
+    L.marker([subshop.lat, subshop.lng]).addTo(subshopMapInstance).bindPopup(subshop.name).openPopup();
+    // Reset routing control
+    if (subshopRoutingControl) {
+      try { subshopMapInstance.removeControl(subshopRoutingControl); } catch (e) {}
+      subshopRoutingControl = null;
+    }
+    // Auto-show route if location exists
+    if (userLocation) {
+      subshopRoutingControl = L.Routing.control({
+        waypoints: [L.latLng(userLocation.lat, userLocation.lng), L.latLng(subshop.lat, subshop.lng)],
+        routeWhileDragging: false,
+      }).addTo(subshopMapInstance);
+      subshopMapInstance.fitBounds([
+        [userLocation.lat, userLocation.lng],
+        [subshop.lat, subshop.lng],
+      ]);
+    }
+  }
+
+  function showSubshopMenuDirections() {
+    if (!selectedSubshop || !subshopMapInstance) return;
+    if (!userLocation) { alert('Allow location to get directions.'); return; }
+    if (subshopRoutingControl) {
+      try { subshopMapInstance.removeControl(subshopRoutingControl); } catch (e) {}
+      subshopRoutingControl = null;
+    }
+    subshopRoutingControl = L.Routing.control({
+      waypoints: [L.latLng(userLocation.lat, userLocation.lng), L.latLng(selectedSubshop.lat, selectedSubshop.lng)],
+      routeWhileDragging: false,
+    }).addTo(subshopMapInstance);
+    subshopMapInstance.fitBounds([
+      [userLocation.lat, userLocation.lng],
+      [selectedSubshop.lat, selectedSubshop.lng],
+    ]);
+  }
+
+  // Reusable reviews renderer into a target container
+  async function loadReviewsInto(containerId, shopId, summaryContainerId) {
+    const list = document.getElementById(containerId);
+    if (!list) return;
+    list.innerHTML = 'Loading...';
+    try {
+      const res = await fetch(`${REVIEWS_BASE}/shop/${shopId}`);
+      if (!res.ok) throw new Error('Failed to load');
+      const data = await res.json();
+      // optional ratings summary
+      if (summaryContainerId) {
+        renderRatingsSummary(summaryContainerId, data || []);
+      }
+      if (!data || data.length === 0) {
+        list.innerHTML = '<p class="text-gray-600">No reviews yet. Be the first to review!</p>';
+        return;
+      }
+      list.innerHTML = '';
+      data.forEach(r => {
+        const el = document.createElement('div');
+        el.className = 'mb-3 p-3 bg-white rounded shadow-sm';
+        el.innerHTML = `<div class="flex justify-between items-center mb-1"><strong>${escapeHtml(r.user || 'Anonymous')}</strong><span class="text-sm text-gray-500">${r.rating}/5</span></div><div class="text-sm text-gray-700">${escapeHtml(r.text || '')}</div>`;
+        list.appendChild(el);
+      });
+    } catch (e) {
+      const msg = e && e.message ? e.message : '';
+      list.innerHTML = `<p class="text-red-500">Unable to load reviews. ${msg}</p>`;
+      console.error(e);
+    }
+  }
+
+  function renderRatingsSummary(containerId, reviews) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (!reviews || reviews.length === 0) { el.innerHTML = ''; return; }
+    const counts = {1:0,2:0,3:0,4:0,5:0};
+    let sum = 0;
+    reviews.forEach(r => { const v = parseInt(r.rating,10)||0; if (v>=1 && v<=5) { counts[v]++; sum += v; } });
+    const total = reviews.length;
+    const avg = total ? (sum/total) : 0;
+    const bar = (n)=>{
+      const pct = total ? Math.round((n/total)*100) : 0;
+      return `<div class="flex items-center gap-2 text-sm">
+        <span class="w-8 text-right">${pct}%</span>
+        <div class="flex-1 h-2 bg-gray-200 rounded">
+          <div class="h-2 rounded ${pct>0?'bg-yellow-400':''}" style="width:${pct}%"></div>
+        </div>
+      </div>`;
+    };
+    el.innerHTML = `
+      <div class="flex items-end gap-4">
+        <div>
+          <div class="text-3xl font-bold text-gray-800">${avg.toFixed(1)}★</div>
+          <div class="text-xs text-gray-500">${total} ratings</div>
+        </div>
+        <div class="flex-1 grid grid-cols-1 gap-1">
+          <div class="flex items-center gap-1"><span class="w-8 text-right">5★</span>${bar(counts[5])}</div>
+          <div class="flex items-center gap-1"><span class="w-8 text-right">4★</span>${bar(counts[4])}</div>
+          <div class="flex items-center gap-1"><span class="w-8 text-right">3★</span>${bar(counts[3])}</div>
+          <div class="flex items-center gap-1"><span class="w-8 text-right">2★</span>${bar(counts[2])}</div>
+          <div class="flex items-center gap-1"><span class="w-8 text-right">1★</span>${bar(counts[1])}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function submitSubshopReview() {
+    const user = (document.getElementById('subshopReviewUser').value || '').trim() || 'Anonymous';
+    const rating = parseInt(document.getElementById('subshopReviewRating').value, 10) || 5;
+    const text = (document.getElementById('subshopReviewText').value || '').trim();
+    const targetId = selectedSubshop ? selectedSubshop.id : (currentShop && currentShop.id);
+    if (!targetId) { alert('No target shop selected'); return; }
+    const payload = { shopId: targetId, user, rating, text };
+    try {
+      if (!navigator.onLine) {
+        await idbAddReviewDraft({ payload, createdAt: Date.now() });
+        alert('You are offline — review queued.');
+        document.getElementById('subshopReviewText').value = '';
+        document.getElementById('subshopReviewRating').value = '5';
+        return;
+      }
+      const headers = { 'Content-Type': 'application/json' };
+      const token = getAuthToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(REVIEWS_BASE, { method: 'POST', headers, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error('Failed to submit');
+      document.getElementById('subshopReviewUser').value = '';
+      document.getElementById('subshopReviewText').value = '';
+      document.getElementById('subshopReviewRating').value = '5';
+  loadReviewsInto('subshopReviewsList', targetId, 'subshopRatingsSummary');
+      trySyncQueuedReviews();
+    } catch (e) {
+      alert('Failed to submit review');
+      console.error(e);
+    }
+  }
+
+  // --- Reviews API integration ---
+  const REVIEWS_BASE = "http://localhost:8080/api/reviews";
+
+  // --- Backend connectivity badge ---
+  function getApiBase() {
+    try {
+      const url = new URL(REVIEWS_BASE);
+      // Replace trailing /api/reviews... with /api
+      const replaced = url.origin + '/api';
+      return replaced;
+    } catch (e) {
+      // Fallback: naive replace
+      return REVIEWS_BASE.replace(/\/?api\/reviews.*/, '/api');
+    }
+  }
+
+  function setBackendStatus({ online, latencyMs }) {
+    const badge = document.getElementById('backendStatusBadge');
+    if (!badge) return;
+    const dot = badge.querySelector('span');
+    if (online) {
+      badge.className = 'ml-3 inline-flex items-center text-xs px-2 py-1 rounded-full bg-green-50 text-green-700';
+      if (dot) dot.className = 'w-2 h-2 rounded-full bg-green-500 mr-1';
+      badge.lastChild && (badge.lastChild.textContent = '');
+      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-green-500 mr-1"></span>Backend: Online${typeof latencyMs==='number' ? ` · ${latencyMs}ms` : ''}`;
+    } else {
+      badge.className = 'ml-3 inline-flex items-center text-xs px-2 py-1 rounded-full bg-red-50 text-red-700';
+      if (dot) dot.className = 'w-2 h-2 rounded-full bg-red-500 mr-1';
+      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-500 mr-1"></span>Backend: Offline`;
+    }
+  }
+
+  async function checkBackendConnectivity() {
+    const apiBase = getApiBase();
+    const url = `${apiBase}/health`;
+    const start = performance.now();
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      const ok = res.ok;
+      const latency = Math.max(1, Math.round(performance.now() - start));
+      setBackendStatus({ online: ok, latencyMs: latency });
+    } catch (e) {
+      setBackendStatus({ online: false });
+    }
+  }
+
+  async function loadReviews(shopId) {
+    const list = document.getElementById("reviewsList");
+    list.innerHTML = "Loading...";
+    // remember last requested id so retry can work
+    window._lastRequestedReviewsId = shopId;
+    try {
+      const res = await fetch(`${REVIEWS_BASE}/shop/${shopId}`);
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      // Update ratings summary (if container exists on current page)
+      renderRatingsSummary('shopRatingsSummary', data || []);
+      if (!data || data.length === 0) {
+        list.innerHTML = '<p class="text-gray-600">No reviews yet. Be the first to review!</p>';
+        // update average display in details
+        const avg = await fetchAverage(shopId);
+        const avgEl = document.getElementById('shopDetailsAverage');
+        if (avgEl) showAverageOnElement(avgEl, avg);
+        return;
+      }
+      list.innerHTML = "";
+      data.forEach(r => {
+        const el = document.createElement('div');
+        el.className = 'mb-3 p-3 bg-white rounded shadow-sm';
+        el.innerHTML = `<div class="flex justify-between items-center mb-1"><strong>${escapeHtml(r.user || 'Anonymous')}</strong><span class="text-sm text-gray-500">${r.rating}/5</span></div><div class="text-sm text-gray-700">${escapeHtml(r.text || '')}</div>`;
+        list.appendChild(el);
+      });
+      // update average display in details
+      const avg = await fetchAverage(shopId);
+      const avgEl = document.getElementById('shopDetailsAverage');
+      if (avgEl) showAverageOnElement(avgEl, avg);
+    } catch (e) {
+      const msg = e && e.message ? e.message : '';
+      list.innerHTML = `<p class="text-red-500">Unable to load reviews. Is the backend running? ${msg}</p><div class=\"mt-2\"><button class=\"px-3 py-1 bg-primary text-white rounded\" onclick=\"loadReviews(window._lastRequestedReviewsId)\">Retry</button></div>`;
+      console.error(e);
+    }
+  }
+
+  async function submitReview() {
+    const user = document.getElementById('reviewUser').value.trim() || 'Anonymous';
+    const rating = parseInt(document.getElementById('reviewRating').value, 10)||5;
+    const text = document.getElementById('reviewText').value.trim();
+    const targetId = selectedSubshop ? selectedSubshop.id : currentShop.id;
+    if (!targetId) {
+      alert('No target shop selected');
+      return;
+    }
+    const payload = { shopId: targetId, user, rating, text };
+    try {
+      // If offline, queue the review in IndexedDB and return
+      if (!navigator.onLine) {
+        await idbAddReviewDraft({ payload, createdAt: Date.now() });
+        alert('You are offline — review queued and will sync when you are back online.');
+        document.getElementById('reviewText').value = '';
+        document.getElementById('reviewRating').value = '5';
+        return;
+      }
+      const headers = { 'Content-Type': 'application/json' };
+      const token = getAuthToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(REVIEWS_BASE, { method: 'POST', headers, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error('Failed to submit');
+      // clear the form
+      document.getElementById('reviewUser').value = '';
+      document.getElementById('reviewText').value = '';
+      document.getElementById('reviewRating').value = '5';
+      loadReviews(targetId);
+      // try to sync any queued drafts too
+      trySyncQueuedReviews();
+    } catch (e) {
+      alert('Failed to submit review');
+      console.error(e);
+    }
+  }
+
+  // --- Admin functions ---
+  async function fetchAdminAnalytics() {
+    // For demo, call backend endpoints if available; otherwise compute from local data
+    const topEl = document.getElementById('adminTopShops');
+    const recentEl = document.getElementById('adminRecentReviews');
+    const totalShopsEl = document.getElementById('adminTotalShops');
+    const totalReviewsEl = document.getElementById('adminTotalReviews');
+    const avgRatingEl = document.getElementById('adminAvgRating');
+    
+    topEl.innerHTML = '<div class="flex items-center justify-center py-8"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div></div>';
+    recentEl.innerHTML = '<div class="flex items-center justify-center py-8"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>';
+    
+    try {
+      // Fetch top shops
+      const resTop = await fetch(`${REVIEWS_BASE}/top`);
+      if (resTop.ok) {
+        const top = await resTop.json();
+        if (!top || top.length === 0) {
+          topEl.innerHTML = '<p class="text-gray-500 text-center py-8">No reviews yet</p>';
+        } else {
+          // Map shop IDs to names
+          const topWithNames = await Promise.all(top.map(async (t, idx) => {
+            // Try to find shop in local data first
+            let shopName = null;
+            const localShop = shops.find(s => s.id === t.shopId);
+            if (localShop) {
+              shopName = localShop.name;
+            } else {
+              // Check if it's a subshop
+              for (const shop of shops) {
+                if (shop.subshops) {
+                  const sub = shop.subshops.find(s => s.id === t.shopId);
+                  if (sub) {
+                    shopName = `${sub.name} (${shop.name})`;
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // Fetch average rating
+            const avg = await fetchAverage(t.shopId);
+            const rating = avg && avg.average ? Number(avg.average).toFixed(1) : 'N/A';
+            
+            return { ...t, shopName: shopName || `Shop #${t.shopId}`, rating, rank: idx + 1 };
+          }));
+          
+          topEl.innerHTML = topWithNames.map(t => `
+            <div class="flex items-center justify-between py-3 px-4 hover:bg-gray-50 rounded-lg transition group cursor-pointer" onclick="showShopDetails(${t.shopId})">
+              <div class="flex items-center space-x-4">
+                <div class="flex-shrink-0">
+                  <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-lg">
+                    ${t.rank}
+                  </div>
+                </div>
+                <div>
+                  <div class="font-semibold text-gray-800 group-hover:text-purple-600">${escapeHtml(t.shopName)}</div>
+                  <div class="text-sm text-gray-500">${t.count} ${t.count === 1 ? 'review' : 'reviews'}</div>
+                </div>
+              </div>
+              <div class="flex items-center space-x-2">
+                <span class="text-yellow-500 font-semibold">${t.rating}★</span>
+                <i data-feather="chevron-right" class="w-4 h-4 text-gray-400 group-hover:text-purple-600"></i>
+              </div>
+            </div>
+          `).join('');
+          feather.replace();
+        }
+      } else {
+        topEl.innerHTML = '<p class="text-red-500 text-center py-8">Failed to load top shops</p>';
+      }
+      
+      // Fetch recent reviews
+      const resRecent = await fetch(`${REVIEWS_BASE}/recent`);
+      if (resRecent.ok) {
+        const recent = await resRecent.json();
+        if (!recent || recent.length === 0) {
+          recentEl.innerHTML = '<p class="text-gray-500 text-center py-8">No recent reviews</p>';
+        } else {
+          recentEl.innerHTML = recent.map(r => `
+            <div class="mb-3 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+              <div class="flex justify-between items-start mb-2">
+                <div class="flex items-center space-x-2">
+                  <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-cyan-400 flex items-center justify-center text-white font-semibold text-sm">
+                    ${escapeHtml((r.user || 'A')[0].toUpperCase())}
+                  </div>
+                  <strong class="text-gray-800">${escapeHtml(r.user || 'Anonymous')}</strong>
+                </div>
+                <div class="flex items-center space-x-1">
+                  ${Array(5).fill(0).map((_, i) => `<i data-feather="star" class="w-3 h-3 ${i < r.rating ? 'text-yellow-500 fill-current' : 'text-gray-300'}"></i>`).join('')}
+                </div>
+              </div>
+              <p class="text-sm text-gray-700 ml-10">${escapeHtml(r.text || 'No comment')}</p>
+              <p class="text-xs text-gray-400 ml-10 mt-1">${new Date(r.createdAt).toLocaleDateString()}</p>
+            </div>
+          `).join('');
+          feather.replace();
+        }
+      } else {
+        recentEl.innerHTML = '<p class="text-red-500 text-center py-8">Failed to load reviews</p>';
+      }
+      
+      // Calculate statistics
+      let totalReviews = 0;
+      let sumRatings = 0;
+      
+      // Fetch all reviews to calculate stats
+      const allReviewsPromises = shops.map(s => fetch(`${REVIEWS_BASE}/shop/${s.id}`).then(r => r.ok ? r.json() : []));
+      const allReviewsArrays = await Promise.all(allReviewsPromises);
+      const allReviews = allReviewsArrays.flat();
+      
+      totalReviews = allReviews.length;
+      sumRatings = allReviews.reduce((sum, r) => sum + (r.rating || 0), 0);
+      
+      totalShopsEl.textContent = shops.length;
+      totalReviewsEl.textContent = totalReviews;
+      avgRatingEl.textContent = totalReviews > 0 ? (sumRatings / totalReviews).toFixed(1) + '★' : 'N/A';
+      
+    } catch (e) {
+      topEl.innerHTML = '<p class="text-red-500 text-center py-8">Failed to load analytics</p>';
+      recentEl.innerHTML = '<p class="text-red-500 text-center py-8">Failed to load reviews</p>';
+      console.error(e);
+    }
+  }
+
+  // --- Admin: Shops CRUD ---
+  async function fetchAdminShops() {
+    const container = document.getElementById('adminShopsList');
+    if (!container) return;
+    container.innerHTML = '<div class="flex items-center justify-center py-8"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div></div>';
+    try {
+      // Get backend shops
+      const token = getAuthToken();
+      let backendShops = [];
+      try {
+        const res = await fetch('http://localhost:8080/api/admin/shops', {
+          headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+        });
+        if (res.ok) {
+          backendShops = await res.json();
+        }
+      } catch (e) {
+        console.log('Could not fetch backend shops:', e);
+      }
+      
+      // Combine frontend and backend shops (show all)
+      const allShops = [...shops];
+      
+      // Add backend-only shops that aren't in frontend
+      backendShops.forEach(bs => {
+        if (!allShops.find(s => s.id === bs.id)) {
+          allShops.push(bs);
+        }
+      });
+      
+      if (allShops.length === 0) {
+        container.innerHTML = '<div class="text-center py-8"><div class="text-gray-400 mb-2"><i data-feather="inbox" class="w-12 h-12 mx-auto"></i></div><p class="text-gray-500">No shops available</p></div>';
+        feather.replace();
+        return;
+      }
+      
+      container.innerHTML = '';
+      allShops.forEach((s, idx) => {
+        const isBackendOnly = backendShops.find(bs => bs.id === s.id) && !shops.find(fs => fs.id === s.id);
+        const row = document.createElement('div');
+        row.className = 'py-4 flex items-center justify-between hover:bg-gray-50 rounded-lg px-4 transition group';
+        row.innerHTML = `
+          <div class="flex items-center space-x-4 flex-1">
+            <div class="flex-shrink-0">
+              <img src="${escapeHtml(s.image || 'https://via.placeholder.com/80')}" alt="${escapeHtml(s.name)}" class="w-16 h-16 rounded-lg object-cover shadow-sm" onerror="this.src='https://via.placeholder.com/80?text=No+Image'"/>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="font-semibold text-gray-800 text-lg">${escapeHtml(s.name)}</div>
+              <div class="flex items-center space-x-3 mt-1">
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                  <i data-feather="tag" class="w-3 h-3 mr-1"></i>
+                  ${escapeHtml(s.category || 'Uncategorized')}
+                </span>
+                <span class="text-xs text-gray-500">
+                  <i data-feather="map-pin" class="w-3 h-3 inline"></i>
+                  ${s.lat ? s.lat.toFixed(4) : '-'}, ${s.lng ? s.lng.toFixed(4) : '-'}
+                </span>
+                ${isBackendOnly ? '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Database</span>' : ''}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="showShopDetails(${s.id})" class="px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition" title="View Details">
+              <i data-feather="eye" class="w-4 h-4"></i>
+            </button>
+            <button onclick="deleteAdminShop(${s.id}, ${backendShops.find(bs => bs.id === s.id) ? 'true' : 'false'})" class="px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition group-hover:opacity-100 opacity-70" title="Delete">
+              <i data-feather="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+      feather.replace();
+    } catch (e) {
+      container.innerHTML = '<div class="text-center py-8"><i data-feather="alert-circle" class="w-12 h-12 mx-auto text-red-400 mb-2"></i><p class="text-red-500">Failed to load shops</p></div>';
+      feather.replace();
+    }
+  }
+
+  async function addAdminShop() {
+    try {
+      const name = document.getElementById('admShopName').value.trim();
+      const category = document.getElementById('admShopCategory').value.trim();
+      const lat = parseFloat(document.getElementById('admShopLat').value);
+      const lng = parseFloat(document.getElementById('admShopLng').value);
+      const image = document.getElementById('admShopImage').value.trim();
+      if (!name || !category || Number.isNaN(lat) || Number.isNaN(lng)) { alert('Enter name, category, valid lat/lng'); return; }
+      const token = getAuthToken();
+      const res = await fetch('http://localhost:8080/api/admin/shops', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+        body: JSON.stringify({ name, category, lat, lng, image })
+      });
+      if (!res.ok) throw new Error('Create failed');
+      const created = await res.json();
+      console.log('Created backend shop:', created);
+
+      // If backend returned the created shop, merge it immediately into frontend list
+      try {
+        const toPush = { ...created, menu: created.menu || [], subshops: created.subshops || [] };
+        if (!shops.find(s => s.id === toPush.id)) {
+          shops.push(toPush);
+        }
+      } catch (e) {
+        console.warn('Failed merging created shop locally', e);
+      }
+
+      // Clear form
+      document.getElementById('admShopName').value = '';
+      document.getElementById('admShopCategory').value = '';
+      document.getElementById('admShopLat').value = '';
+      document.getElementById('admShopLng').value = '';
+      document.getElementById('admShopImage').value = '';
+      
+      // Reload shops from backend to update frontend
+      await reloadShopsFromBackend();
+      
+      // Refresh admin list
+      fetchAdminShops();
+      
+      alert('Shop added successfully! It will now appear in shop categories.');
+    } catch (e) {
+      alert('Failed to add shop');
+    }
+  }
+
+  async function deleteAdminShop(id, isInDatabase) {
+    if (!confirm('Delete this shop? (Will be removed from display)')) return;
+    try {
+      // If shop is in database, delete from backend
+      if (isInDatabase) {
+        const token = getAuthToken();
+        const res = await fetch(`http://localhost:8080/api/admin/shops/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+        });
+        if (!res.ok) throw new Error('Delete failed');
+      }
+      
+      // Remove from frontend shops array (works for both hardcoded and database shops)
+      const index = shops.findIndex(s => s.id === id);
+      if (index > -1) {
+        shops.splice(index, 1);
+      }
+      
+      // Refresh displays
+      renderCategories();
+      renderNearbyShops();
+      fetchAdminShops();
+      
+      alert('Shop removed from display!');
+    } catch (e) {
+      alert('Failed to delete: ' + e.message);
+    }
+  }
+
+  // Filter shops in admin panel
+  function filterAdminShops() {
+    const searchTerm = document.getElementById('adminShopSearch').value.toLowerCase();
+    const container = document.getElementById('adminShopsList');
+    const allRows = container.querySelectorAll('.py-4');
+    
+    allRows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      if (text.includes(searchTerm)) {
+        row.style.display = '';
+      } else {
+        row.style.display = 'none';
+      }
+    });
+  }
+
+  function showAdminPage() {
+    const role = getAuthRole();
+    if (role !== 'ADMIN') { alert('Admin access only'); return; }
+    showPage('adminPage');
+    fetchAdminAnalytics();
+    fetchAdminShops();
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"]+/g, function(match) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[match];
+    });
+  }
+
+  function initializeShopMap() {
+    if (!currentShop) return;
+    if (selectedSubshop) return;
+    const mapDiv = document.getElementById("map");
+    if (mapInstance) {
+      mapInstance.remove();
+      mapInstance = null;
+    }
+    mapInstance = L.map("map").setView([currentShop.lat, currentShop.lng], 17);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(mapInstance);
+
+    L.marker([currentShop.lat, currentShop.lng])
+      .addTo(mapInstance)
+      .bindPopup(currentShop.name)
+      .openPopup();
+
+    if (routingControl) {
+      mapInstance.removeControl(routingControl);
+      routingControl = null;
+    }
+  }
+
+  function findSubshopById(id) {
+    for (const s of shops) {
+      if (s.subshops) {
+        const found = s.subshops.find((sub) => sub.id === id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      },
+      () => console.warn("Permission denied. Directions may not be accurate.")
+    );
+  } else {
+    console.warn("Geolocation not supported.");
+  }
+
+  function showDirections() {
+    if (!userLocation) {
+      alert("Allow location to get directions.");
+      return;
+    }
+    if (!currentShop || !mapInstance) return;
+    if (routingControl) {
+      mapInstance.removeControl(routingControl);
+      routingControl = null;
+    }
+    routingControl = L.Routing.control({
+      waypoints: [L.latLng(userLocation.lat, userLocation.lng), L.latLng(currentShop.lat, currentShop.lng)],
+      routeWhileDragging: false,
+    }).addTo(mapInstance);
+
+    mapInstance.fitBounds([
+      [userLocation.lat, userLocation.lng],
+      [currentShop.lat, currentShop.lng],
+    ]);
+  }
+
+  function showSubshopDirections() {
+    if (!userLocation) {
+      alert("Allow location to get directions.");
+      return;
+    }
+    if (!selectedSubshop || !mapInstance) return;
+    if (routingControl) {
+      mapInstance.removeControl(routingControl);
+      routingControl = null;
+    }
+    routingControl = L.Routing.control({
+      waypoints: [L.latLng(userLocation.lat, userLocation.lng), L.latLng(selectedSubshop.lat, selectedSubshop.lng)],
+      routeWhileDragging: false,
+    }).addTo(mapInstance);
+
+    mapInstance.fitBounds([
+      [userLocation.lat, userLocation.lng],
+      [selectedSubshop.lat, selectedSubshop.lng],
+    ]);
+  }
+
+  function handleSearch() {
+    const searchTerm = document.getElementById("searchInput").value.toLowerCase();
+    if (!searchTerm) {
+      if (!currentCategory) showHomePage();
+      else showShopsPage();
+      return;
+    }
+    let filtered = shops.filter(
+      (shop) => shop.name.toLowerCase().includes(searchTerm) || (menuToNames(shop.menu) || []).some((item) => item.toLowerCase().includes(searchTerm))
+    );
+
+    shops.forEach((shop) => {
+      if (shop.subshops && shop.subshops.length > 0) {
+        const matchedSubshops = shop.subshops.filter((sub) => sub.name.toLowerCase().includes(searchTerm));
+        filtered = filtered.concat(matchedSubshops);
+      }
+    });
+
+    if (filtered.length === 1) {
+      const item = filtered[0];
+      if (item.id >= 100) {
+        const parentShop = shops.find((s) => s.subshops?.some((sub) => sub.id === item.id));
+        currentShop = parentShop;
+        showShopDetails(parentShop.id);
+        setTimeout(() => showSubShopDetails(item), 200);
+      } else {
+        showShopDetails(item.id);
+      }
+    } else if (filtered.length > 1) {
+      currentCategory = null;
+      showPage("shopsPage");
+      const container = document.getElementById("shopsList");
+      container.innerHTML = "";
+      filtered.forEach((item) => {
+        const favClass = isFavorited(item.id) ? "text-red-500" : "text-gray-400";
+        const card = document.createElement("div");
+        card.className = "shop-card bg-white rounded-lg shadow-sm overflow-hidden transition duration-300 cursor-pointer";
+        card.innerHTML = `
+          <div class="relative">
+            <img src="${item.image || ""}" alt="${item.name}" class="w-full h-32 object-cover" />
+            <button onclick="event.stopPropagation(); toggleFavorite(${item.id});" class="absolute top-2 left-2 bg-white rounded-full p-1">
+              <i data-feather="heart" class="${favClass}"></i>
+            </button>
+          </div>
+          <div class="p-4">
+            <div class="flex justify-between items-start mb-2">
+              <h3 class="font-medium text-gray-800">${item.name}</h3>
+              <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">${item.category}</span>
+            </div>
+            <p class="text-gray-500 text-sm mb-3">Menu: ${item.menu && item.menu.length ? item.menu.join(", ") : "-"}</p>
+            <div class="mb-2">${renderStatusHtmlFor(item)}</div>
+          </div>
+        `;
+        card.onclick = () => {
+          if (item.id >= 100) {
+            const parentShop = shops.find((s) => s.subshops?.some((sub) => sub.id === item.id));
+            currentShop = parentShop;
+            showShopDetails(parentShop.id);
+            setTimeout(() => showSubShopDetails(item), 200);
+          } else {
+            showShopDetails(item.id);
+          }
+        };
+        container.appendChild(card);
+      });
+      document.getElementById("shopPageTitle").innerText = "Search Results";
+      feather.replace();
+    } else {
+      alert("No matches found.");
+      if (!currentCategory) showHomePage();
+      else showShopsPage();
+    }
+  }
+
+  function showFavoritesPage() {
+    showPage("favoritesPage");
+    const container = document.getElementById("favoritesList");
+    container.innerHTML = "";
+    const favs = getFavorites();
+    if (favs.length === 0) {
+  container.innerHTML = '<p class="text-center text-gray-600">No favorites yet. Tap the <i data-feather="heart" data-fav-id="fav-help"></i> icon to save shops.</p>';
+      feather.replace();
+      return;
+    }
+    favs.forEach((id) => {
+      let item = shops.find((s) => s.id === id);
+      let isSub = false;
+      if (!item) {
+        // find as subshop
+        const parent = shops.find((s) => s.subshops?.some((sub) => sub.id === id));
+        if (parent) {
+          item = parent.subshops.find((sub) => sub.id === id);
+          isSub = true;
+        }
+      }
+      if (!item) return;
+      const favClass = isFavorited(id) ? "text-red-500" : "text-gray-400";
+      const card = document.createElement("div");
+      card.className = "shop-card bg-white rounded-lg shadow-sm overflow-hidden transition duration-300 cursor-pointer mb-4";
+      card.innerHTML = `
+        <div class="relative">
+          <img src="${(isSub ? shops.find(s=>s.subshops?.some(sub=>sub.id===id)).image : item.image) || ''}" alt="${item.name}" class="w-full h-32 object-cover" />
+        </div>
+        <div class="p-4 flex justify-between items-center">
+          <div class="flex-1">
+            <h3 class="font-medium text-gray-800">${item.name}</h3>
+            <p class="text-gray-500 text-sm">${item.category}</p>
+            <div class="mt-1">${renderStatusHtmlFor(item)}</div>
+            <div id="avg-${id}" class="mt-1"></div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="toggleFavorite(${id}); event.stopPropagation();" class="bg-white rounded-full p-1">
+              <i data-feather="heart" class="${favClass}"></i>
+            </button>
+            <button title="Open" onclick="event.stopPropagation(); ${isSub ? `const parent=shops.find(s=>s.subshops?.some(sub=>sub.id===${id})); currentShop=parent; showShopDetails(parent.id); setTimeout(()=>showSubShopDetails(${id}),200);` : `showShopDetails(${id});`}" class="p-2 bg-primary text-white rounded-full flex items-center justify-center">
+              <i data-feather="external-link" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      `;
+      container.appendChild(card);
+      // fetch average for this favorite
+      (async () => { const avg = await fetchAverage(id); const el = document.getElementById(`avg-${id}`); if (el) showAverageOnElement(el, avg); })();
+    });
+    feather.replace();
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    feather.replace();
+    updateFavoritesCount();
+  // tryRestoreAuth removed while backend/login is not configured
+    updateAuthUIFromStorage();
+    showHomePage();
+    VANTA.NET({
+      el: "#vanta-canvas",
+      color: 0x3b82f6,
+      backgroundColor: 0xf9fafb,
+      points: 12,
+      maxDistance: 20,
+      spacing: 15,
+    });
+    // Kick off backend connectivity checks
+    checkBackendConnectivity();
+    setInterval(checkBackendConnectivity, 15000);
+  });
+</script>
+</body>
+</html>
