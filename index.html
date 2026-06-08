@@ -510,8 +510,9 @@
     console.log('Back online — attempting to sync reviews');
     trySyncQueuedReviews();
   });
-  // Auth UI removed for now (backend pending). Token helpers kept for later integration.
-  const AUTH_BASE = "http://localhost:8080/api/auth";
+  // Change this URL to your live backend URL (e.g. "https://canteen-backend.onrender.com") when deploying!
+  const BACKEND_URL = "http://localhost:8080";
+  const AUTH_BASE = BACKEND_URL + "/api/auth";
 
   function setAuthToken(token) { localStorage.setItem('srm_auth_token', token); }
   function getAuthToken() { return localStorage.getItem('srm_auth_token'); }
@@ -959,7 +960,7 @@
   async function reloadShopsFromBackend() {
     try {
       const token = getAuthToken();
-      const res = await fetch('http://localhost:8080/api/admin/shops', {
+      const res = await fetch(getApiBase() + '/admin/shops', {
         headers: { 'Authorization': token ? `Bearer ${token}` : '' }
       });
       if (!res.ok) {
@@ -1666,7 +1667,7 @@
   }
 
   // --- Reviews API integration ---
-  const REVIEWS_BASE = "http://localhost:8080/api/reviews";
+  const REVIEWS_BASE = BACKEND_URL + "/api/reviews";
 
   // --- Backend connectivity badge ---
   function getApiBase() {
@@ -1920,7 +1921,7 @@
       const token = getAuthToken();
       let backendShops = [];
       try {
-        const res = await fetch('http://localhost:8080/api/admin/shops', {
+        const res = await fetch(getApiBase() + '/admin/shops', {
           headers: { 'Authorization': token ? `Bearer ${token}` : '' }
         });
         if (res.ok) {
@@ -1998,7 +1999,7 @@
       const image = document.getElementById('admShopImage').value.trim();
       if (!name || !category || Number.isNaN(lat) || Number.isNaN(lng)) { alert('Enter name, category, valid lat/lng'); return; }
       const token = getAuthToken();
-      const res = await fetch('http://localhost:8080/api/admin/shops', {
+      const res = await fetch(getApiBase() + '/admin/shops', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
         body: JSON.stringify({ name, category, lat, lng, image })
@@ -2042,7 +2043,7 @@
       // If shop is in database, delete from backend
       if (isInDatabase) {
         const token = getAuthToken();
-        const res = await fetch(`http://localhost:8080/api/admin/shops/${id}`, {
+        const res = await fetch(getApiBase() + `/admin/shops/${id}`, {
           method: 'DELETE',
           headers: { 'Authorization': token ? `Bearer ${token}` : '' }
         });
