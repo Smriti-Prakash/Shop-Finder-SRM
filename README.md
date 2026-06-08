@@ -7,3 +7,4 @@ A production-ready, map-first web application that helps users discover on‑cam
 * MySQL Database
 * HTML/CSS/JS (Leaflet Maps)
 * Clever Cloud
+* Force redeploy update
